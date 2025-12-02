@@ -21,7 +21,8 @@ const {
     Tray,
     dialog,
     nativeTheme,
-    session
+    session,
+    screen
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -191,7 +192,7 @@ let tray = null;
 let logger = null;
 let backupInterval = null;
 let isQuitting = false;
-let trayMenuVisibility = 'shown';
+let trayMenu = null;
 let trayTooltipInterval = null;
 let trayStatus = {
     targets: 0,
@@ -199,6 +200,8 @@ let trayStatus = {
     lastRefresh: null,
     rateLimitStatus: null
 };
+let trayPopoverWindow = null;
+let trayPopoverHideTimer = null;
 
 // ============================================================================
 // ENCRYPTION HELPERS
@@ -264,19 +267,21 @@ function formatRelativeTime(value) {
 function buildTrayIntel() {
     const attackable = trayStatus.attackable || 0;
     const totalTargets = trayStatus.targets || 0;
-    const readinessIcon = totalTargets === 0 ? '🪐' : attackable > 0 ? '🚀' : '🌙';
+    const readinessIcon = totalTargets === 0 ? '📂' : attackable > 0 ? '⚔️' : '🕒';
 
     const lastRefreshDate = trayStatus.lastRefresh ? new Date(trayStatus.lastRefresh) : null;
     const refreshAgeMinutes = lastRefreshDate
         ? (Date.now() - lastRefreshDate.getTime()) / 60000
         : null;
-    let syncIcon = '🛰️';
+    let syncIcon = '🔄';
     if (refreshAgeMinutes === null) {
-        syncIcon = '⌛';
+        syncIcon = '🟣';
     } else if (refreshAgeMinutes > 45) {
-        syncIcon = '⚠️';
+        syncIcon = '🔴';
     } else if (refreshAgeMinutes > 15) {
-        syncIcon = '⏳';
+        syncIcon = '🟠';
+    } else {
+        syncIcon = '🟢';
     }
     const syncLabel = lastRefreshDate
         ? `${lastRefreshDate.toLocaleTimeString()} (${formatRelativeTime(lastRefreshDate)})`
@@ -288,21 +293,21 @@ function buildTrayIntel() {
         : null;
     let rateIcon = '🪙';
     if (ratePercent !== null) {
-        if (ratePercent <= 10) rateIcon = '🔥';
-        else if (ratePercent <= 30) rateIcon = '⚠️';
-        else if (ratePercent <= 60) rateIcon = '⏳';
+        if (ratePercent <= 10) rateIcon = '🟥';
+        else if (ratePercent <= 30) rateIcon = '🟧';
+        else if (ratePercent <= 60) rateIcon = '🟡';
         else rateIcon = '🟢';
     }
     const rateLabel = rate
-        ? `${rate.availableTokens}/${rate.maxTokens} tokens`
-        : 'rate: n/a';
+        ? `${rate.availableTokens}/${rate.maxTokens} tokens${ratePercent !== null ? ` (${ratePercent}%)` : ''}`
+        : 'n/a';
 
     const settings = store?.get('settings', {}) || {};
     const stats = store?.get('statistics', {}) || {};
 
     const lastBackup = store?.get('lastBackup') || null;
     const lastBackupDate = lastBackup ? new Date(lastBackup) : null;
-    const backupIcon = lastBackupDate ? '🛡️' : '📦';
+    const backupIcon = lastBackupDate ? '💾' : '⚠️';
     const backupLabel = lastBackupDate ? formatRelativeTime(lastBackupDate) : 'never';
 
     const history = store?.get('attackHistory', []) || [];
@@ -330,6 +335,41 @@ function buildTrayIntel() {
         minimizeToTray: !!settings.minimizeToTray,
         stats
     };
+}
+
+const TRAY_ICONS = {
+    attackable: '⚔️',
+    sync: '🔄',
+    rate: '🪙',
+    backup: '💾',
+    total: '📈',
+    lastAttack: '🕑',
+    window: '🪟',
+    refresh: '🔁',
+    quickAdd: '➕',
+    settings: '⚙️',
+    notifications: '🔔',
+    sound: '🔊',
+    startMin: '⏱️',
+    keepTray: '📌',
+    backupNow: '💾',
+    folder: '📂',
+    logs: '📜',
+    quit: '⏻'
+};
+
+const TRAY_TICK_COLUMN = 48;
+const TRAY_TICK_TRUE = '✓';
+const TRAY_TICK_FALSE = ' ';
+
+function trayLabel(icon, text) {
+    return `${icon} ${text}`;
+}
+
+function trayToggleLabel(text, enabled) {
+    const safeText = text || '';
+    const pad = Math.max(1, TRAY_TICK_COLUMN - safeText.length);
+    return `${safeText}${' '.repeat(pad)}${enabled ? TRAY_TICK_TRUE : TRAY_TICK_FALSE}`;
 }
 
 function encrypt(text) {
@@ -839,8 +879,10 @@ function createTray() {
     try {
         const iconPath = resolveTrayIconPath();
         tray = new Tray(iconPath);
+        trayMenu = null;
         updateTrayTooltip();
         updateTrayContextMenu();
+        wireTrayPopover();
 
         tray.on('click', () => {
             if (!mainWindow) return;
@@ -863,48 +905,29 @@ function createTray() {
     }
 }
 
-function updateTrayContextMenu() {
-    if (!tray) return;
+function buildTrayMenu(intel) {
     const isVisible = mainWindow && mainWindow.isVisible();
-    trayMenuVisibility = isVisible ? 'shown' : 'hidden';
-    const intel = buildTrayIntel();
     const needsRefresh = intel.refreshAgeMinutes === null || intel.refreshAgeMinutes > 20;
-
+    const staleMinutes = intel.refreshAgeMinutes !== null ? Math.max(0, Math.round(intel.refreshAgeMinutes)) : null;
     const menuTemplate = [
+        { id: 'tray-attackable', label: trayLabel(TRAY_ICONS.attackable, `Attackable: ${intel.attackable}/${intel.totalTargets} ${intel.readinessIcon}`), enabled: false },
+        { id: 'tray-sync', label: trayLabel(TRAY_ICONS.sync, `Sync: ${intel.syncLabel} ${intel.syncIcon}`), enabled: false },
+        { id: 'tray-rate', label: trayLabel(TRAY_ICONS.rate, `Tokens: ${intel.rateLabel} ${intel.rateIcon}`), enabled: false },
+        { id: 'tray-backup', label: trayLabel(TRAY_ICONS.backup, `Backup: ${intel.backupLabel}`), enabled: false },
+        { id: 'tray-total-attacks', label: trayLabel(TRAY_ICONS.total, `Lifetime attacks: ${intel.stats.totalAttacks || 0}`), enabled: false },
         {
-            label: `${intel.readinessIcon} Attackable: ${intel.attackable}/${intel.totalTargets}`,
-            enabled: false
+            id: 'tray-last-attack',
+            label: intel.lastAttackLabel
+                ? trayLabel(TRAY_ICONS.lastAttack, `Last: ${intel.lastAttackLabel}`)
+                : trayLabel(TRAY_ICONS.lastAttack, 'Last: none'),
+            visible: !!intel.lastAttackLabel,
+            enabled: !!intel.lastAttack?.userId,
+            lastAttackUserId: intel.lastAttack?.userId || null
         },
-        {
-            label: `${intel.syncIcon} Sync: ${intel.syncLabel}`,
-            enabled: false
-        },
-        {
-            label: `${intel.rateIcon} ${intel.rateLabel}`,
-            enabled: false
-        },
-        {
-            label: `${intel.backupIcon} Backup: ${intel.backupLabel}`,
-            enabled: false
-        },
-        {
-            label: `📈 Lifetime attacks: ${intel.stats.totalAttacks || 0}`,
-            enabled: false
-        },
-        intel.lastAttackLabel
-            ? {
-                label: `🎯 Last attack: ${intel.lastAttackLabel}`,
-                click: () => {
-                    if (intel.lastAttack?.userId) {
-                        const url = `https://www.torn.com/profiles.php?XID=${intel.lastAttack.userId}`;
-                        shell.openExternal(url);
-                    }
-                }
-            }
-            : null,
         { type: 'separator' },
         {
-            label: isVisible ? 'Hide Window' : 'Show Window',
+            id: 'tray-window',
+            label: trayLabel(TRAY_ICONS.window, isVisible ? 'Hide Window' : 'Show Window'),
             click: () => {
                 if (!mainWindow) return;
                 if (mainWindow.isVisible()) {
@@ -916,21 +939,25 @@ function updateTrayContextMenu() {
             }
         },
         {
-            label: needsRefresh ? '⚡ Refresh (data stale)' : 'Refresh All Targets',
+            id: 'tray-refresh',
+            label: trayLabel(TRAY_ICONS.refresh, needsRefresh
+                ? (intel.refreshAgeMinutes === null ? 'Refresh (never synced)' : `Refresh (stale ${staleMinutes}m)`)
+                : 'Refresh All Targets'),
             click: () => {
                 mainWindow?.webContents.send('trigger-refresh');
-                updateTrayContextMenu();
             }
         },
         {
-            label: 'Quick Add Target (Ctrl+N)',
+            id: 'tray-quick-add',
+            label: trayLabel(TRAY_ICONS.quickAdd, 'Quick Add Target (Ctrl+N)'),
             click: () => {
                 focusMainWindow();
                 mainWindow?.webContents.send('open-add-target');
             }
         },
         {
-            label: 'Open Settings',
+            id: 'tray-settings',
+            label: trayLabel(TRAY_ICONS.settings, 'Open Settings'),
             click: () => {
                 focusMainWindow();
                 mainWindow?.webContents.send('open-settings');
@@ -938,32 +965,29 @@ function updateTrayContextMenu() {
         },
         { type: 'separator' },
         {
-            label: `${intel.notificationsEnabled ? '🔔' : '🔕'} Notifications`,
-            type: 'checkbox',
-            checked: intel.notificationsEnabled,
-            click: (menuItem) => updateTraySetting('notifications', menuItem.checked)
+            id: 'tray-notifications',
+            label: trayToggleLabel('Notifications', intel.notificationsEnabled),
+            click: () => updateTraySetting('notifications', !store.get('settings.notifications'))
         },
         {
-            label: `${intel.soundEnabled ? '🎵' : '🔇'} Notification Sound`,
-            type: 'checkbox',
-            checked: intel.soundEnabled,
-            click: (menuItem) => updateTraySetting('soundEnabled', menuItem.checked)
+            id: 'tray-sound',
+            label: trayToggleLabel('Notification Sound', intel.soundEnabled),
+            click: () => updateTraySetting('soundEnabled', !store.get('settings.soundEnabled'))
         },
         {
-            label: `${intel.startMinimized ? '🌗' : '🌕'} Launch Minimized`,
-            type: 'checkbox',
-            checked: intel.startMinimized,
-            click: (menuItem) => updateTraySetting('startMinimized', menuItem.checked)
+            id: 'tray-start-minimized',
+            label: trayToggleLabel('Launch Minimized', intel.startMinimized),
+            click: () => updateTraySetting('startMinimized', !store.get('settings.startMinimized'))
         },
         {
-            label: `${intel.minimizeToTray ? '📌' : '📍'} Keep in Tray`,
-            type: 'checkbox',
-            checked: intel.minimizeToTray,
-            click: (menuItem) => updateTraySetting('minimizeToTray', menuItem.checked)
+            id: 'tray-keep-tray',
+            label: trayToggleLabel('Keep in Tray', intel.minimizeToTray),
+            click: () => updateTraySetting('minimizeToTray', !store.get('settings.minimizeToTray'))
         },
         { type: 'separator' },
         {
-            label: 'Create Backup Now',
+            id: 'tray-backup-now',
+            label: trayLabel(TRAY_ICONS.backupNow, 'Create Backup Now'),
             click: () => {
                 const result = createBackup();
                 if (!result.success) {
@@ -975,14 +999,16 @@ function updateTrayContextMenu() {
             }
         },
         {
-            label: 'Open Backup Folder',
+            id: 'tray-open-backups',
+            label: trayLabel(TRAY_ICONS.folder, 'Open Backup Folder'),
             click: () => {
                 const dir = ensureBackupDir();
                 shell.openPath(dir);
             }
         },
         {
-            label: 'Open Logs',
+            id: 'tray-open-logs',
+            label: trayLabel(TRAY_ICONS.logs, 'Open Logs'),
             click: () => {
                 const logDir = path.join(app.getPath('userData'), 'logs');
                 shell.openPath(logDir);
@@ -990,28 +1016,484 @@ function updateTrayContextMenu() {
         },
         { type: 'separator' },
         {
-            label: 'Quit',
+            id: 'tray-quit',
+            label: trayLabel(TRAY_ICONS.quit, 'Quit'),
             click: () => {
                 isQuitting = true;
                 app.quit();
             }
         }
-    ].filter(Boolean);
+    ];
 
-    tray.setContextMenu(Menu.buildFromTemplate(menuTemplate));
+    const menu = Menu.buildFromTemplate(menuTemplate);
+
+    // Note: We rebuild the menu on each open instead of trying to update it live
+    // because Windows doesn't support live menu item updates while the menu is open
+
+    const lastAttackItem = menu.getMenuItemById('tray-last-attack');
+    if (lastAttackItem) {
+        lastAttackItem.click = () => {
+            if (lastAttackItem.lastAttackUserId) {
+                const url = `https://www.torn.com/profiles.php?XID=${lastAttackItem.lastAttackUserId}`;
+                shell.openExternal(url);
+            }
+        };
+    }
+
+    return menu;
+}
+
+function updateTrayContextMenu() {
+    if (!tray) return;
+    const intel = buildTrayIntel();
+
+    // Always rebuild the menu with fresh data to ensure it's up-to-date
+    // This is necessary because Windows doesn't support live menu updates
+    trayMenu = buildTrayMenu(intel);
+    tray.setContextMenu(trayMenu);
 }
 
 function updateTrayTooltip() {
     if (!tray) return;
-    const intel = buildTrayIntel();
-    const tooltip = [
-        APP_NAME,
-        `${intel.readinessIcon} Attackable: ${intel.attackable}/${intel.totalTargets}`,
-        `${intel.syncIcon} Sync: ${intel.syncLabel}`,
-        `${intel.rateIcon} ${intel.rateLabel}`,
-        `${intel.backupIcon} Backup: ${intel.backupLabel}`
-    ].join('\n');
-    tray.setToolTip(tooltip);
+
+    // Build simple tooltip with minimal information
+    const attackable = trayStatus.attackable || 0;
+    const totalTargets = trayStatus.targets || 0;
+
+    const lastRefreshDate = trayStatus.lastRefresh ? new Date(trayStatus.lastRefresh) : null;
+    const refreshText = lastRefreshDate ? formatRelativeTime(lastRefreshDate) : 'never';
+
+    const tooltipText = `Torn Target Tracker\nAttackable: ${attackable}/${totalTargets}\nLast refresh: ${refreshText}`;
+    tray.setToolTip(tooltipText);
+}
+
+function wireTrayPopover() {
+    // Disabled - using native tooltip instead of custom popover
+    // if (!tray) return;
+    //
+    // const show = () => {
+    //     const intel = buildTrayIntel();
+    //     showTrayPopover(intel);
+    // };
+    // const hide = () => scheduleHideTrayPopover(800);
+    //
+    // // Only use mouse-enter to prevent flickering from mouse-move
+    // tray.on('mouse-enter', show);
+    // tray.on('mouse-leave', hide);
+}
+
+function showTrayPopover(intel) {
+    clearTimeout(trayPopoverHideTimer);
+
+    const content = buildTrayPopoverContent(intel);
+    // Ultra-compact dimensions - no cards, minimal design
+    const hasLastAttack = intel.lastAttackLabel ? true : false;
+    const baseHeight = 200;  // Minimal height without card backgrounds
+    const lastAttackHeight = hasLastAttack ? 28 : 0;
+    const { width: popWidth, height: popHeight } = { width: 260, height: baseHeight + lastAttackHeight };
+    const trayBounds = tray.getBounds();
+    const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y });
+    const workArea = display.workArea;
+
+    let x = trayBounds.x + trayBounds.width - popWidth;
+    let y = trayBounds.y - popHeight - 10; // prefer above the icon
+
+    // Clamp to visible work area
+    x = Math.min(Math.max(workArea.x + 6, x), workArea.x + workArea.width - popWidth - 6);
+    if (y < workArea.y + 6) {
+        y = trayBounds.y + trayBounds.height + 10; // fall below only if needed
+    }
+    y = Math.min(Math.max(workArea.y + 6, y), workArea.y + workArea.height - popHeight - 6);
+
+    if (trayPopoverWindow && !trayPopoverWindow.isDestroyed()) {
+        trayPopoverWindow.setBounds({ x, y, width: popWidth, height: popHeight });
+        trayPopoverWindow.webContents.loadURL(content);
+        trayPopoverWindow.showInactive();
+        return;
+    }
+
+    trayPopoverWindow = new BrowserWindow({
+        width: popWidth,
+        height: popHeight,
+        x,
+        y,
+        frame: false,
+        transparent: true,
+        resizable: false,
+        movable: false,
+        alwaysOnTop: true,
+        focusable: false,
+        skipTaskbar: true,
+        show: false,
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true
+        }
+    });
+
+    trayPopoverWindow.once('ready-to-show', () => {
+        trayPopoverWindow.showInactive();
+    });
+
+    // Keep popover visible when mouse is over it
+    trayPopoverWindow.on('mouse-enter', () => {
+        clearTimeout(trayPopoverHideTimer);
+    });
+    trayPopoverWindow.on('mouse-leave', () => scheduleHideTrayPopover(400));
+
+    trayPopoverWindow.loadURL(content);
+}
+
+function buildTrayPopoverContent(intel) {
+    const ratePercent = intel.rateLabel.includes('%')
+        ? parseInt(intel.rateLabel.match(/(\\d+)%/)?.[1] || '0', 10)
+        : null;
+    const rateWidth = ratePercent !== null ? Math.min(100, Math.max(0, ratePercent)) : 0;
+    const rateColor = ratePercent === null
+        ? '#858585'
+        : ratePercent <= 15 ? '#f14c4c'
+        : ratePercent <= 35 ? '#f5a623'
+        : ratePercent <= 65 ? '#dcdcaa'
+        : '#4ec9b0';
+
+    // Compute glow color for rate bar
+    const rateGlow = ratePercent === null
+        ? 'rgba(133,133,133,0.15)'
+        : ratePercent <= 15 ? 'rgba(241,76,76,0.25)'
+        : ratePercent <= 35 ? 'rgba(245,166,35,0.25)'
+        : ratePercent <= 65 ? 'rgba(220,220,170,0.25)'
+        : 'rgba(78,201,176,0.25)';
+
+    const attackIcon = TRAY_ICONS.attackable;
+    const syncIcon = intel.syncIcon;
+    const rateIcon = TRAY_ICONS.rate;
+    const backupIcon = intel.backupIcon;
+    const lastIcon = TRAY_ICONS.lastAttack;
+
+    const markup = `
+    <!doctype html>
+    <html>
+    <head>
+    <style>
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(-8px) scale(0.96);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      @keyframes shimmer {
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 0.7; }
+      }
+      @keyframes pulseGlow {
+        0%, 100% { filter: drop-shadow(0 0 3px currentColor); }
+        50% { filter: drop-shadow(0 0 6px currentColor); }
+      }
+      @keyframes fillBar {
+        from { transform: scaleX(0); }
+        to { transform: scaleX(1); }
+      }
+
+      :root {
+        --bg-primary: rgba(22, 22, 24, 0.98);
+        --bg-card: rgba(38, 38, 42, 0.95);
+        --border-subtle: rgba(255, 255, 255, 0.12);
+        --border-accent: rgba(64, 156, 255, 0.4);
+        --text-primary: #f5f5f7;
+        --text-secondary: #c7c7cc;
+        --text-muted: #8e8e93;
+        --accent-blue: #409cff;
+        --accent-gradient: linear-gradient(135deg, #409cff 0%, #3bdbf3 100%);
+        --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.6);
+        --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.85);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        margin: 0;
+        padding: 5px;
+        background: transparent;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+        color: var(--text-primary);
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        height: 100vh;
+        width: 100vw;
+      }
+
+      .popover-card {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: var(--bg-primary);
+        backdrop-filter: blur(24px) saturate(200%);
+        -webkit-backdrop-filter: blur(24px) saturate(200%);
+        border: 1.5px solid var(--border-subtle);
+        border-radius: 12px;
+        box-shadow: var(--shadow-lg),
+                    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+                    0 2px 4px rgba(255, 255, 255, 0.1) inset;
+        padding: 8px;
+        animation: slideIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .popover-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: var(--accent-gradient);
+        opacity: 0.85;
+        box-shadow: 0 0 12px rgba(64, 156, 255, 0.3);
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 5px;
+        padding-bottom: 3px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        flex-shrink: 0;
+      }
+
+      .app-title {
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        background: linear-gradient(90deg, var(--text-secondary), var(--text-muted));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 8px;
+        font-weight: 500;
+        color: var(--accent-blue);
+        background: rgba(10, 132, 255, 0.12);
+        padding: 2px 6px;
+        border-radius: 6px;
+        border: 1px solid rgba(10, 132, 255, 0.2);
+      }
+
+      .status-dot {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--accent-blue);
+        box-shadow: 0 0 6px var(--accent-blue);
+        animation: pulseGlow 2s ease-in-out infinite;
+      }
+
+      .stats-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .stat-item {
+        display: grid;
+        grid-template-columns: 16px 1fr;
+        gap: 6px;
+        align-items: center;
+        padding: 3px 4px;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        transition: all 0.12s ease;
+      }
+
+      .stat-item:hover {
+        background: rgba(255, 255, 255, 0.03);
+        transform: translateX(1px);
+      }
+
+      .stat-icon {
+        font-size: 11px;
+        line-height: 1;
+        opacity: 0.9;
+        transition: opacity 0.12s ease;
+      }
+
+      .stat-item:hover .stat-icon {
+        opacity: 1;
+      }
+
+      .stat-content {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+      }
+
+      .stat-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-primary);
+        line-height: 1.2;
+        letter-spacing: 0.1px;
+      }
+
+      .stat-value {
+        font-size: 9px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .progress-container {
+        margin-top: 1px;
+      }
+
+      .progress-bar {
+        position: relative;
+        width: 100%;
+        height: 5px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 3px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .progress-fill {
+        height: 100%;
+        width: ${rateWidth}%;
+        background: linear-gradient(90deg, ${rateColor}, ${rateColor}dd);
+        box-shadow: 0 0 12px ${rateGlow},
+                    0 0 4px ${rateGlow} inset;
+        border-radius: 3px;
+        transform-origin: left;
+        animation: fillBar 0.4s cubic-bezier(0.4, 0, 0.2, 1) 0.15s both;
+        position: relative;
+      }
+
+      .progress-fill::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(90deg,
+          transparent 0%,
+          rgba(255, 255, 255, 0.2) 50%,
+          transparent 100%);
+        animation: shimmer 2s ease-in-out infinite;
+      }
+
+      .divider {
+        height: 1px;
+        background: linear-gradient(90deg,
+          transparent,
+          rgba(255, 255, 255, 0.1) 50%,
+          transparent);
+        margin: 2px 0;
+        flex-shrink: 0;
+      }
+    </style>
+    </head>
+    <body>
+      <div class="popover-card">
+        <div class="header">
+          <div class="app-title">Torn Tracker</div>
+          <div class="status-badge">
+            <div class="status-dot"></div>
+            LIVE
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-icon">${attackIcon}</div>
+            <div class="stat-content">
+              <div class="stat-label">Attackable</div>
+              <div class="stat-value">${intel.attackable} of ${intel.totalTargets} targets ${intel.readinessIcon}</div>
+            </div>
+          </div>
+
+          <div class="stat-item">
+            <div class="stat-icon">${syncIcon}</div>
+            <div class="stat-content">
+              <div class="stat-label">Last Sync</div>
+              <div class="stat-value">${intel.syncLabel}</div>
+            </div>
+          </div>
+
+          <div class="stat-item">
+            <div class="stat-icon">${rateIcon}</div>
+            <div class="stat-content">
+              <div class="stat-label">API Tokens</div>
+              <div class="stat-value">${intel.rateLabel}</div>
+              <div class="progress-container">
+                <div class="progress-bar">
+                  <div class="progress-fill"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          ${intel.lastAttackLabel ? `
+          <div class="divider"></div>
+          <div class="stat-item">
+            <div class="stat-icon">${lastIcon}</div>
+            <div class="stat-content">
+              <div class="stat-label">Last Attack</div>
+              <div class="stat-value">${intel.lastAttackLabel}</div>
+            </div>
+          </div>` : ''}
+
+          <div class="divider"></div>
+          <div class="stat-item">
+            <div class="stat-icon">${backupIcon}</div>
+            <div class="stat-content">
+              <div class="stat-label">Last Backup</div>
+              <div class="stat-value">${intel.backupLabel}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
+
+    return `data:text/html;charset=UTF-8,${encodeURIComponent(markup)}`;
+}
+
+function scheduleHideTrayPopover(delayMs = 300) {
+    clearTimeout(trayPopoverHideTimer);
+    trayPopoverHideTimer = setTimeout(() => {
+        if (trayPopoverWindow && !trayPopoverWindow.isDestroyed()) {
+            trayPopoverWindow.hide();
+        }
+    }, delayMs);
 }
 
 function resolveTrayIconPath() {
@@ -1124,10 +1606,19 @@ app.on('before-quit', () => {
     if (backupInterval) {
         clearInterval(backupInterval);
     }
+    if (trayTooltipInterval) {
+        clearInterval(trayTooltipInterval);
+        trayTooltipInterval = null;
+    }
 
     if (tray) {
         tray.destroy();
         tray = null;
+    }
+
+    if (trayPopoverWindow) {
+        trayPopoverWindow.destroy();
+        trayPopoverWindow = null;
     }
 
     logger?.info('Application shutting down');
