@@ -245,6 +245,35 @@
         }
     ];
 
+    // Inline monochrome icons to mirror the contextual menu styling; falls back to asset SVGs when not provided.
+    const INLINE_MENU_ICONS = {
+        'menu-new-target.svg': '<path fill="currentColor" d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm0 0"/><path fill="currentColor" d="M11 7h2v4h4v2h-4v4h-2v-4H7v-2h4z"/>',
+        'menu-bulk-add.svg': '<path fill="currentColor" d="M7 6a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm10 0a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/><path fill="currentColor" d="M10 14c-2.8 0-5 1.57-5 3.5V19h7.5a5.5 5.5 0 0 1 2.54-4.64C13.96 14.12 12.1 14 10 14zm7 1a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm0 1.5h1.5v1.5H17V20h-1.5v-2H14v-1.5h1.5V15H17v1.5z"/>',
+        'menu-attack.svg': '<path fill="currentColor" d="M7 2v11h3v9l7-12h-4l4-8z"/>',
+        'menu-profile.svg': '<path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>',
+        'menu-favorite.svg': '<path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>',
+        'menu-refresh.svg': '<path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>',
+        'menu-refresh-one.svg': '<path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>',
+        'menu-remove.svg': '<path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>',
+        'menu-import.svg': '<path fill="currentColor" d="M5 20h14v-2H5v2zm7-16l5 5h-3v6h-4v-6H7l5-5z"/>',
+        'menu-export.svg': '<path fill="currentColor" d="M19 9l-5-5v3H9v4h5v3l5-5zM5 11h2v8h10v-8h2v10H5z"/>',
+        'menu-backup.svg': '<path fill="currentColor" d="M5 6h14v4h2V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v5h2V6zm14 6H5v6a1 1 0 0 0 1 1h5v-3H9l3-4 3 4h-2v3h5a1 1 0 0 0 1-1v-6z"/>',
+        'menu-settings.svg': '<path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a6.97 6.97 0 0 0-1.63-.94L14.5 2h-5l-.25 2.24a6.97 6.97 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.21 8.16a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.3.64.22l2.39-.96c.5.38 1.05.7 1.63.94L9.5 22h5l.25-2.24c.58-.24 1.13-.56 1.63-.94l2.39.96c.24.08.51 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>',
+        'menu-quit.svg': '<path fill="currentColor" d="M13 3h-2v10h2V3zm4.24 2.76l-1.41 1.41A6 6 0 0 1 18 12a6 6 0 0 1-10.83 3.24l-1.41 1.41A8 8 0 0 0 20 12a8 8 0 0 0-2.76-6.24z"/>',
+        'menu-view-targets.svg': '<path fill="currentColor" d="M4 5h16v2H4V5zm0 6h10v2H4v-2zm0 6h16v2H4v-2z"/>',
+        'menu-view-history.svg': '<path fill="currentColor" d="M13 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V3zm-1 5v5l4 2 .75-1.23L13 11V8h-1z"/>',
+        'menu-view-statistics.svg': '<path fill="currentColor" d="M5 19h2V9H5v10zm6 0h-2v-6h2v6zm2 0h2V5h-2v14zm6 0h-2V11h2v8z"/>',
+        'menu-view-loot.svg': '<path fill="currentColor" d="M12 2 2 7l10 5 8-4.02V17h2V7L12 2zm0 11.45L4 9.24V17c0 1.1.9 2 2 2h6v-5.55z"/>',
+        'menu-view-settings.svg': '<path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a6.97 6.97 0 0 0-1.63-.94L14.5 2h-5l-.25 2.24a6.97 6.97 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.21 8.16a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.3.64.22l2.39-.96c.5.38 1.05.7 1.63.94L9.5 22h5l.25-2.24c.58-.24 1.13-.56 1.63-.94l2.39.96c.24.08.51 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>',
+        'menu-compact.svg': '<path fill="currentColor" d="M4 5h8v6H4V5zm0 8h8v6H4v-6zm10-8h6v4h-6V5zm0 6h6v8h-6v-8z"/>',
+        'menu-tray.svg': '<path fill="currentColor" d="M20 13h-5v2h-6v-2H4v6h16v-6zm0-8H4a2 2 0 0 0-2 2v8h4v-2h10v2h4V7a2 2 0 0 0-2-2z"/>',
+        'menu-collapse.svg': '<path fill="currentColor" d="M7 10h2V6h4v4h2l-4 4-4-4zm10 4h-2v4H9v-4H7l4-4 4 4z"/>',
+        'menu-data-folder.svg': '<path fill="currentColor" d="M10 4 8 6H4a2 2 0 0 0-2 2v8c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V6H12l-2-2H4z"/>',
+        'menu-about.svg': '<path fill="currentColor" d="M11 17h2v-6h-2v6zm0-8h2V7h-2v2zm1-7C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>',
+        'menu-settings.svg#tray': '<path fill="currentColor" d="M20 13h-5v2h-6v-2H4v6h16v-6zm0-8H4a2 2 0 0 0-2 2v8h4v-2h10v2h4V7a2 2 0 0 0-2-2z"/>',
+        'menu-view-settings.svg#toggle': '<path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a6.97 6.97 0 0 0-1.63-.94L14.5 2h-5l-.25 2.24a6.97 6.97 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.21 8.16a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.3.64.22l2.39-.96c.5.38 1.05.7 1.63.94L9.5 22h5l.25-2.24c.58-.24 1.13-.56 1.63-.94l2.39.96c.24.08.51 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>'
+    };
+
     // ========================================================================
     // INITIALIZATION
     // ========================================================================
@@ -463,13 +492,7 @@
             check.className = 'menubar-menu-check';
             check.textContent = checked ? '✓' : '';
 
-            const icon = document.createElement('span');
-            icon.className = 'menubar-menu-icon';
-            if (item.icon) {
-                icon.style.backgroundImage = `url("assets/${item.icon}")`;
-            } else {
-                icon.classList.add('placeholder');
-            }
+            const icon = createMenubarIcon(item.icon);
 
             const label = document.createElement('span');
             label.className = 'menubar-menu-label';
@@ -661,6 +684,23 @@
 
     function getCurrentMenu() {
         return MENUBAR_MENUS.find(m => m.id === menubarState.activeMenuId) || null;
+    }
+
+    function createMenubarIcon(iconName) {
+        const icon = document.createElement('span');
+        icon.className = 'menubar-menu-icon';
+        const inlineIcon = INLINE_MENU_ICONS[iconName];
+
+        if (inlineIcon) {
+            icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${inlineIcon}</svg>`;
+        } else if (iconName) {
+            icon.classList.add('uses-asset');
+            icon.style.backgroundImage = `url("assets/${iconName}")`;
+        } else {
+            icon.classList.add('placeholder');
+        }
+
+        return icon;
     }
 
     function handleMenubarKey(e) {
@@ -986,20 +1026,24 @@
         document.getElementById('btn-preview-bulk')?.addEventListener('click', handleBulkPreview);
         document.getElementById('btn-confirm-bulk')?.addEventListener('click', handleBulkAdd);
         document.getElementById('input-bulk-ids')?.addEventListener('input', () => {
-            document.getElementById('bulk-preview').style.display = 'none';
-            document.getElementById('btn-confirm-bulk').disabled = true;
+            const bulkPreview = document.getElementById('bulk-preview');
+            const btnConfirmBulk = document.getElementById('btn-confirm-bulk');
+            if (bulkPreview) bulkPreview.style.display = 'none';
+            if (btnConfirmBulk) btnConfirmBulk.disabled = true;
         });
 
         // Add group modal
         document.getElementById('btn-confirm-group')?.addEventListener('click', handleAddGroup);
         document.getElementById('input-group-color')?.addEventListener('input', (e) => {
-            document.getElementById('color-preview').style.backgroundColor = e.target.value;
+            const colorPreview = document.getElementById('color-preview');
+            if (colorPreview) colorPreview.style.backgroundColor = e.target.value;
         });
 
         // Edit group modal
         document.getElementById('btn-confirm-edit-group')?.addEventListener('click', handleEditGroup);
         document.getElementById('input-edit-group-color')?.addEventListener('input', (e) => {
-            document.getElementById('edit-color-preview').style.backgroundColor = e.target.value;
+            const editColorPreview = document.getElementById('edit-color-preview');
+            if (editColorPreview) editColorPreview.style.backgroundColor = e.target.value;
         });
 
         // Context menu items
@@ -1045,7 +1089,9 @@
             const setTimeBtn = e.target.closest('.boss-set-time-btn');
             if (setTimeBtn) {
                 const bossId = parseInt(setTimeBtn.dataset.bossId, 10);
-                promptSetDefeatTime(bossId);
+                if (!isNaN(bossId)) {
+                    promptSetDefeatTime(bossId);
+                }
             }
         });
 
@@ -1143,7 +1189,17 @@
             ['setting-compact', 'compactMode'],
             ['setting-confirm-attack', 'confirmBeforeAttack'],
             ['setting-minimize-tray', 'minimizeToTray'],
-            ['setting-start-minimized', 'startMinimized']
+            ['setting-start-minimized', 'startMinimized'],
+            ['setting-show-avatars', 'showAvatars'],
+            ['setting-show-offline', 'showOfflineTargets'],
+            ['setting-show-badges', 'showStatusCountBadges'],
+            ['setting-sort-remember', 'sortRememberLast'],
+            ['setting-confirm-delete', 'confirmBeforeDelete'],
+            ['setting-attack-sound', 'playAttackSound'],
+            ['setting-notify-monitored', 'notifyOnlyMonitored'],
+            ['setting-notify-hospital', 'notifyOnHospitalRelease'],
+            ['setting-notify-jail', 'notifyOnJailRelease'],
+            ['setting-auto-backup', 'autoBackupEnabled']
         ];
 
         settingBindings.forEach(([elementId, settingKey]) => {
@@ -1151,8 +1207,30 @@
                 window.appState.updateSettings({ [settingKey]: e.target.checked });
                 if (settingKey === 'compactMode') {
                     document.body.classList.toggle('compact-mode', e.target.checked);
+                } else if (settingKey === 'showAvatars' || settingKey === 'showOfflineTargets' || settingKey === 'showStatusCountBadges') {
+                    // Refresh display for visual changes
+                    renderTargetList();
+                    if (settingKey === 'showStatusCountBadges') {
+                        updateFilterCounts();
+                    }
                 }
             });
+        });
+
+        // Select settings
+        document.getElementById('setting-theme')?.addEventListener('change', (e) => {
+            window.appState.updateSettings({ theme: e.target.value });
+            applyTheme(e.target.value);
+        });
+
+        document.getElementById('setting-list-density')?.addEventListener('change', (e) => {
+            window.appState.updateSettings({ listDensity: e.target.value });
+            applyListDensity(e.target.value);
+        });
+
+        document.getElementById('setting-timestamp-format')?.addEventListener('change', (e) => {
+            window.appState.updateSettings({ timestampFormat: e.target.value });
+            renderTargetList(); // Refresh display
         });
 
         // Numeric settings
@@ -1166,6 +1244,18 @@
             const value = Math.max(1, Math.min(5, parseInt(e.target.value) || 3));
             e.target.value = value;
             window.appState.updateSettings({ maxConcurrentRequests: value });
+        });
+
+        document.getElementById('setting-backup-interval')?.addEventListener('change', (e) => {
+            const value = Math.max(1, Math.min(30, parseInt(e.target.value) || 7));
+            e.target.value = value;
+            window.appState.updateSettings({ autoBackupInterval: value });
+        });
+
+        document.getElementById('setting-max-history')?.addEventListener('change', (e) => {
+            const value = Math.max(100, Math.min(10000, parseInt(e.target.value) || 1000));
+            e.target.value = value;
+            window.appState.updateSettings({ maxHistoryEntries: value });
         });
 
         // Export/Import
@@ -1210,7 +1300,9 @@
             refreshMenubarMenuState();
             window.electronAPI?.setTrayStatus?.({
                 targets: window.appState.getTargets().length,
-                attackable: window.appState.getTargets().filter(t => t.isAttackable()).length
+                attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
+                lastRefresh: window.appState.lastRefresh,
+                rateLimitStatus: window.appState.limiter?.getStatus?.()
             });
         });
 
@@ -1225,6 +1317,13 @@
             if (state.currentView === 'statistics') {
                 renderStatistics();
             }
+            // Update tray with current counts
+            window.electronAPI?.setTrayStatus?.({
+                targets: window.appState.getTargets().length,
+                attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
+                lastRefresh: window.appState.lastRefresh,
+                rateLimitStatus: window.appState.limiter?.getStatus?.()
+            });
         });
 
         state.on('target-added', () => {
@@ -1287,7 +1386,9 @@
             updateRateText(window.appState.limiter.getStatus());
             window.electronAPI?.setTrayStatus?.({
                 targets: window.appState.getTargets().length,
-                attackable: window.appState.getTargets().filter(t => t.isAttackable()).length
+                attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
+                lastRefresh: window.appState.lastRefresh,
+                rateLimitStatus: window.appState.limiter?.getStatus?.()
             });
         });
 
@@ -1331,6 +1432,7 @@
             window.electronAPI?.setTrayStatus?.({
                 targets: progress.total,
                 attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
+                lastRefresh: window.appState.lastRefresh,
                 rateLimitStatus: window.appState.limiter?.getStatus?.()
             });
         });
@@ -1405,6 +1507,13 @@
             if (state.currentView === 'statistics') {
                 renderStatistics();
             }
+            // Update tray to reflect new statistics
+            window.electronAPI?.setTrayStatus?.({
+                targets: window.appState.getTargets().length,
+                attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
+                lastRefresh: window.appState.lastRefresh,
+                rateLimitStatus: window.appState.limiter?.getStatus?.()
+            });
         });
 
         state.on('selection-changed', () => refreshMenubarMenuState());
@@ -1417,6 +1526,17 @@
             if (state.currentView === 'statistics') {
                 renderStatistics();
             }
+            // Update tray to reflect new attack history
+            window.electronAPI?.setTrayStatus?.({
+                targets: window.appState.getTargets().length,
+                attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
+                lastRefresh: window.appState.lastRefresh,
+                rateLimitStatus: window.appState.limiter?.getStatus?.()
+            });
+        });
+
+        state.on('play-notification-sound', () => {
+            playSound('notification');
         });
     }
 
@@ -1489,10 +1609,127 @@
         }
     }
 
+    // Update welcome view with dynamic content
+    function updateWelcomeView() {
+        const allTargets = window.appState.getTargets();
+        const totalTargets = allTargets.length;
+
+        // Calculate attackable targets and other stats
+        const attackableTargets = allTargets.filter(t => t.isAttackable()).length;
+        const hospitalTargets = allTargets.filter(t => t.status === 'Hospital').length;
+        const jailTargets = allTargets.filter(t => t.status === 'Jail').length;
+        const travelTargets = allTargets.filter(t => t.status === 'Traveling').length;
+
+        // Calculate targets coming available soon (within next hour)
+        const oneHour = 60 * 60 * 1000;
+        const comingSoonTargets = allTargets.filter(t => {
+            if (t.isAttackable()) return false;
+            const timeRemaining = t.getTimeRemaining();
+            return timeRemaining > 0 && timeRemaining <= oneHour;
+        }).length;
+
+        // Get time-based greeting
+        const hour = new Date().getHours();
+        let timeGreeting = 'evening';
+        if (hour < 12) timeGreeting = 'morning';
+        else if (hour < 18) timeGreeting = 'afternoon';
+
+        // Update stats
+        const targetsStat = document.getElementById('welcome-stat-targets');
+        const attackableStat = document.getElementById('welcome-stat-attackable');
+        const statusStat = document.getElementById('welcome-stat-status');
+
+        if (targetsStat) targetsStat.textContent = totalTargets;
+        if (attackableStat) attackableStat.textContent = attackableTargets;
+        if (statusStat) {
+            if (totalTargets === 0) {
+                statusStat.textContent = 'Ready';
+            } else if (attackableTargets > 0) {
+                statusStat.textContent = 'Active';
+            } else if (comingSoonTargets > 0) {
+                statusStat.textContent = 'Pending';
+            } else {
+                statusStat.textContent = 'Tracking';
+            }
+        }
+
+        // Update main header title and description
+        const mainTitle = document.getElementById('welcome-main-title');
+        const mainDescription = document.getElementById('welcome-main-description');
+
+        if (totalTargets === 0) {
+            // No targets - show onboarding message
+            if (mainTitle) mainTitle.textContent = `Good ${timeGreeting}! Ready to Track Your Targets?`;
+            if (mainDescription) mainDescription.textContent = 'Build your intelligence network by adding targets. Get instant notifications when they become vulnerable, track their movements in real-time, and never miss an opportunity.';
+        } else if (attackableTargets > 0) {
+            // Has attackable targets
+            const titles = [
+                'Targets Ready for Action',
+                'Attack Window Open',
+                'Opportunities Available',
+                'Targets Vulnerable Now'
+            ];
+            const title = titles[attackableTargets % titles.length];
+
+            if (mainTitle) mainTitle.textContent = title;
+
+            let description = `${attackableTargets} target${attackableTargets !== 1 ? 's are' : ' is'} currently attackable and ready for engagement.`;
+
+            if (comingSoonTargets > 0) {
+                description += ` ${comingSoonTargets} more will become available within the hour.`;
+            }
+            if (hospitalTargets + jailTargets + travelTargets > 0) {
+                const statusParts = [];
+                if (hospitalTargets > 0) statusParts.push(`${hospitalTargets} hospitalized`);
+                if (jailTargets > 0) statusParts.push(`${jailTargets} jailed`);
+                if (travelTargets > 0) statusParts.push(`${travelTargets} traveling`);
+                description += ` Tracking ${statusParts.join(', ')}.`;
+            }
+
+            if (mainDescription) mainDescription.textContent = description;
+        } else if (totalTargets > 0) {
+            // Has targets but none attackable
+            if (comingSoonTargets > 0) {
+                if (mainTitle) mainTitle.textContent = 'Targets Incoming';
+                if (mainDescription) mainDescription.textContent = `${comingSoonTargets} target${comingSoonTargets !== 1 ? 's' : ''} will become attackable within the next hour. ${totalTargets - comingSoonTargets > 0 ? `Monitoring ${totalTargets - comingSoonTargets} other${totalTargets - comingSoonTargets !== 1 ? 's' : ''} for status changes.` : ''} You'll receive instant alerts when attack windows open.`;
+            } else {
+                if (mainTitle) mainTitle.textContent = 'Intelligence Network Active';
+                if (mainDescription) mainDescription.textContent = `Actively monitoring ${totalTargets} target${totalTargets !== 1 ? 's' : ''} across Torn City. ${hospitalTargets + jailTargets > 0 ? `Tracking ${hospitalTargets + jailTargets} target${hospitalTargets + jailTargets !== 1 ? 's' : ''} in custody/medical facilities. ` : ''}Real-time alerts will notify you the moment any target becomes vulnerable.`;
+            }
+        }
+
+        // Update main CTA card based on target count
+        const ctaTitle = document.getElementById('welcome-cta-title');
+        const ctaDescription = document.getElementById('welcome-cta-description');
+
+        if (totalTargets === 0) {
+            // No targets - show onboarding message
+            if (ctaTitle) ctaTitle.textContent = 'Initialize Tracking System';
+            if (ctaDescription) ctaDescription.textContent = 'Deploy your first surveillance target and unlock real-time intelligence monitoring, instant vulnerability alerts, and comprehensive tracking analytics.';
+        } else if (attackableTargets > 0) {
+            // Has attackable targets
+            if (ctaTitle) ctaTitle.textContent = `${attackableTargets} Target${attackableTargets !== 1 ? 's' : ''} Ready`;
+            const percentage = Math.round((attackableTargets / totalTargets) * 100);
+            if (ctaDescription) ctaDescription.textContent = `${percentage}% of your surveillance network (${attackableTargets}/${totalTargets} targets) is currently vulnerable. Select targets from the list to view detailed intelligence and execute attacks.`;
+        } else if (totalTargets > 0) {
+            // Has targets but none attackable
+            if (comingSoonTargets > 0) {
+                if (ctaTitle) ctaTitle.textContent = `${comingSoonTargets} Target${comingSoonTargets !== 1 ? 's' : ''} Incoming`;
+                if (ctaDescription) ctaDescription.textContent = `Attack windows opening soon for ${comingSoonTargets} target${comingSoonTargets !== 1 ? 's' : ''}. Stand by for real-time notifications as they become vulnerable.`;
+            } else {
+                if (ctaTitle) ctaTitle.textContent = `${totalTargets} Target${totalTargets !== 1 ? 's' : ''} Under Surveillance`;
+                if (ctaDescription) ctaDescription.textContent = `Your intelligence network is actively monitoring all targets. Automated alerts will notify you instantly when attack opportunities arise.`;
+            }
+        }
+    }
+
     function renderTargetList() {
         const targets = window.appState.getFilteredTargets();
         DOM.targetsCount.textContent = `(${targets.length})`;
         activeCountdownTargets.clear();
+
+        // Update welcome view with current stats
+        updateWelcomeView();
 
         if (targets.length === 0) {
             DOM.targetList.innerHTML = `
@@ -1511,7 +1748,7 @@
 
         // Bind events to new items
         DOM.targetList.querySelectorAll('.target-item').forEach(item => {
-            const userId = parseInt(item.dataset.userId);
+            const userId = parseInt(item.dataset.userId, 10);
 
             item.addEventListener('click', () => {
                 if (window.appState.currentView !== 'targets') {
@@ -1538,11 +1775,20 @@
         const hasNoAttackFlag = group && group.noAttack;
         const selectedClass = window.appState.selectedTargetId === target.userId ? 'selected' : '';
         const flaggedClass = hasNoAttackFlag ? 'in-flagged-group' : '';
+        const showAvatars = window.appState.settings.showAvatars !== false;
+
+        // Avatar HTML
+        const avatarHtml = showAvatars ? `
+            <div class="target-avatar ${target.avatarPath || target.avatarUrl ? '' : 'placeholder'}">
+                ${target.avatarPath || target.avatarUrl ? `<img src="${target.avatarPath || target.avatarUrl}" alt="${escapeHtml(displayName)}">` : ''}
+            </div>
+        ` : '';
 
         return `
             <div class="target-item ${selectedClass} ${flaggedClass}"
                  data-user-id="${target.userId}">
                 <span class="status-dot ${statusClass}"></span>
+                ${avatarHtml}
                 <div class="target-info">
                     <span class="target-name">${escapeHtml(displayName)}</span>
                     <span class="target-meta">
@@ -1676,7 +1922,7 @@
 
     function updateTargetListSelection(userId) {
         DOM.targetList.querySelectorAll('.target-item').forEach(item => {
-            item.classList.toggle('selected', parseInt(item.dataset.userId) === userId);
+            item.classList.toggle('selected', parseInt(item.dataset.userId, 10) === userId);
         });
     }
 
@@ -1687,29 +1933,46 @@
     function renderTargetDetail(target) {
         if (!target) return;
 
-        DOM.detailName.textContent = target.getDisplayName();
-        DOM.detailName.classList.toggle('favorite', target.isFavorite);
-        DOM.detailId.textContent = target.userId;
+        // Verify we have all required DOM elements
+        if (!DOM.detailName || !DOM.detailId) {
+            console.error('Detail view DOM elements not found');
+            return;
+        }
+
+        // Basic info with null checks
+        if (DOM.detailName) {
+            DOM.detailName.textContent = target.getDisplayName();
+            DOM.detailName.classList.toggle('favorite', target.isFavorite);
+        }
+        if (DOM.detailId) DOM.detailId.textContent = target.userId;
+
+        // Avatar - always re-render to update status-based styling
         renderTargetAvatar(target);
 
-        // Status badge
-        DOM.detailStatusBadge.textContent = target.statusState || 'Unknown';
-        DOM.detailStatusBadge.className = 'status-badge ' + target.getStatusClass();
+        // Status badge - critical for status updates
+        if (DOM.detailStatusBadge) {
+            DOM.detailStatusBadge.textContent = target.statusState || 'Unknown';
+            DOM.detailStatusBadge.className = 'status-badge ' + target.getStatusClass();
+        }
+
+        // Status chip - update to reflect current status
         updateStatusChip(target);
 
-        // Timer
+        // Timer - update countdown or hide if expired
         updateDetailTimer(target);
 
         // Favorite button
-        DOM.detailFavoriteBtn.classList.toggle('active', target.isFavorite);
+        if (DOM.detailFavoriteBtn) {
+            DOM.detailFavoriteBtn.classList.toggle('active', target.isFavorite);
+        }
 
-        // Info
-        DOM.detailLevel.textContent = target.level || '-';
+        // Info section
+        if (DOM.detailLevel) DOM.detailLevel.textContent = target.level || '-';
         if (DOM.detailLevelChip) {
             DOM.detailLevelChip.textContent = target.level ? `Lv. ${target.level}` : 'Lv. ?';
         }
 
-        DOM.detailFaction.textContent = target.faction || 'None';
+        if (DOM.detailFaction) DOM.detailFaction.textContent = target.faction || 'None';
         if (DOM.detailFactionChip) {
             DOM.detailFactionChip.textContent = target.faction || 'No faction';
         }
@@ -1718,19 +1981,23 @@
             DOM.detailUpdatedChip.textContent = `Updated ${formatTimestamp(target.lastUpdated)}`;
         }
 
-        DOM.detailStatusDesc.textContent = target.statusDesc || target.statusState || '-';
-        DOM.detailLastAction.textContent = target.lastActionRelative || '-';
-        DOM.detailUpdated.textContent = formatTimestamp(target.lastUpdated);
-        DOM.detailAdded.textContent = formatTimestamp(target.addedAt);
+        if (DOM.detailStatusDesc) DOM.detailStatusDesc.textContent = target.statusDesc || target.statusState || '-';
+        if (DOM.detailLastAction) DOM.detailLastAction.textContent = target.lastActionRelative || '-';
+        if (DOM.detailUpdated) DOM.detailUpdated.textContent = formatTimestamp(target.lastUpdated);
+        if (DOM.detailAdded) DOM.detailAdded.textContent = formatTimestamp(target.addedAt);
+
+        // Update visual decorations based on status
         decorateDetailRows(target);
 
         // Attack stats
-        DOM.detailAttackCount.textContent = target.attackCount || 0;
-        DOM.detailLastAttacked.textContent = target.lastAttacked ? formatTimestamp(target.lastAttacked) : 'Never';
+        if (DOM.detailAttackCount) DOM.detailAttackCount.textContent = target.attackCount || 0;
+        if (DOM.detailLastAttacked) {
+            DOM.detailLastAttacked.textContent = target.lastAttacked ? formatTimestamp(target.lastAttacked) : 'Never';
+        }
 
         // Editable fields
-        DOM.detailCustomName.value = target.customName || '';
-        DOM.detailNotes.value = target.notes || '';
+        if (DOM.detailCustomName) DOM.detailCustomName.value = target.customName || '';
+        if (DOM.detailNotes) DOM.detailNotes.value = target.notes || '';
         if (DOM.detailMonitorOk) {
             DOM.detailMonitorOk.checked = !!target.monitorOk;
         }
@@ -1738,15 +2005,20 @@
 
         // Group select
         updateGroupSelects();
-        DOM.detailGroup.value = target.groupId || 'default';
+        if (DOM.detailGroup) DOM.detailGroup.value = target.groupId || 'default';
 
-        // Attack button state
-        DOM.btnAttack.disabled = !target.isAttackable();
+        // Attack button state - critical for showing if target is attackable
+        if (DOM.btnAttack) {
+            DOM.btnAttack.disabled = !target.isAttackable();
+        }
 
+        // History
         renderTargetHistory(target);
     }
 
     function decorateDetailRows(target) {
+        if (!target) return;
+
         const status = (target.statusState || '').toLowerCase();
         const infoSection = document.querySelector('.detail-section .detail-grid');
         if (!infoSection) return;
@@ -1758,15 +2030,19 @@
 
         const statusRow = document.querySelector('[data-detail-row="status"]');
         const lastActionRow = document.querySelector('[data-detail-row="last-action"]');
+
+        // Update status row styling based on current status
         if (statusRow) {
             if (status === 'okay' || status === 'ok') {
                 statusRow.classList.add('status-okay');
             } else if (status === 'traveling' || status === 'abroad') {
                 statusRow.classList.add('status-warning');
-            } else if (status) {
+            } else if (status === 'hospital' || status === 'jail' || status === 'jailed' || status === 'federal' || status === 'fallen') {
                 statusRow.classList.add('status-bad');
             }
         }
+
+        // Update last action row styling
         if (lastActionRow) {
             if (target.lastActionRelative && target.lastActionRelative.includes('ago')) {
                 lastActionRow.classList.add('status-warning');
@@ -1776,7 +2052,7 @@
 
     function renderTargetHistory(target) {
         const list = DOM.detailHistoryList;
-        if (!list) return;
+        if (!list || !target) return;
 
         const history = window.appState.getTargetHistory
             ? window.appState.getTargetHistory(target.userId, 6)
@@ -1809,11 +2085,39 @@
     }
 
     function updateDetailTimer(target) {
-        const timeRemaining = target?.getFormattedTimeRemaining();
-        if (timeRemaining) {
-            DOM.detailTimer.textContent = timeRemaining;
+        if (!target) return;
+
+        // Get NUMERIC time remaining to properly detect when timer expires
+        const timeRemainingSeconds = target.getTimeRemaining();
+        const formattedTime = target.getFormattedTimeRemaining();
+
+        // Check if timer has expired (0 or less)
+        if (timeRemainingSeconds !== null && timeRemainingSeconds <= 0) {
+            DOM.detailTimer.style.display = 'none';
+
+            // Timer reached zero - mark target as okay locally if they were in hospital/jail
+            if (target.isInHospital() || target.isInJail() || target.isInFederal()) {
+                target.statusState = 'Okay';
+                target.statusDesc = 'Okay';
+                target.statusUntil = null;
+                target.ok = true;
+
+                // Update the target in state and save
+                window.appState.targets.set(target.userId, target);
+                window.appState.saveTargets();
+
+                // Update the UI to reflect the change
+                window.appState.emit('target-updated', target);
+
+                // Force full re-render of detail view
+                renderTargetDetail(target);
+            }
+        } else if (formattedTime) {
+            // Timer still running - show countdown
+            DOM.detailTimer.textContent = formattedTime;
             DOM.detailTimer.style.display = 'inline';
         } else {
+            // No timer (target doesn't have a countdown)
             DOM.detailTimer.style.display = 'none';
         }
     }
@@ -1913,11 +2217,37 @@
                     continue;
                 }
 
-                const timeRemaining = t.getFormattedTimeRemaining();
+                // Get NUMERIC time to properly detect when timer expires
+                const timeRemainingSeconds = t.getTimeRemaining();
+                const formattedTime = t.getFormattedTimeRemaining();
                 const level = t.level ? `Lv.${t.level}` : '';
-                if (timeRemaining) {
-                    item.textContent = [level, timeRemaining].filter(Boolean).join(' • ');
+
+                // Check if timer has expired (0 or less)
+                if (timeRemainingSeconds !== null && timeRemainingSeconds <= 0) {
+                    // Timer reached zero - mark target as okay locally
+                    // This will be corrected on next refresh if status has changed
+                    if (t.isInHospital() || t.isInJail() || t.isInFederal()) {
+                        t.statusState = 'Okay';
+                        t.statusDesc = 'Okay';
+                        t.statusUntil = null;
+                        t.ok = true;
+
+                        // Update the target in state and save
+                        window.appState.targets.set(userId, t);
+                        window.appState.saveTargets();
+
+                        // Update the UI to reflect the change
+                        window.appState.emit('target-updated', t);
+                        updateTargetInList(t);
+                    }
+
+                    item.textContent = level;
+                    activeCountdownTargets.delete(userId);
+                } else if (formattedTime) {
+                    // Timer still running - display countdown
+                    item.textContent = [level, formattedTime].filter(Boolean).join(' • ');
                 } else {
+                    // No countdown
                     item.textContent = level;
                     activeCountdownTargets.delete(userId);
                 }
@@ -1940,7 +2270,8 @@
         });
 
         // Update "All" count
-        document.getElementById('group-all-count').textContent = groupCounts.all;
+        const groupAllCount = document.getElementById('group-all-count');
+        if (groupAllCount) groupAllCount.textContent = groupCounts.all;
 
         // Render custom groups
         const customGroups = groups.filter(g => !g.isDefault);
@@ -2011,13 +2342,21 @@
     function updateFilterCounts() {
         const counts = window.appState.getFilterCounts();
 
-        document.getElementById('filter-all-count').textContent = counts.all;
-        document.getElementById('filter-okay-count').textContent = counts.okay;
-        document.getElementById('filter-hospital-count').textContent = counts.hospital;
-        document.getElementById('filter-jail-count').textContent = counts.jail;
-        document.getElementById('filter-traveling-count').textContent = counts.traveling;
-        document.getElementById('filter-favorites-count').textContent = counts.favorites;
-        document.getElementById('filter-errors-count').textContent = counts.errors;
+        const filterAllCount = document.getElementById('filter-all-count');
+        const filterOkayCount = document.getElementById('filter-okay-count');
+        const filterHospitalCount = document.getElementById('filter-hospital-count');
+        const filterJailCount = document.getElementById('filter-jail-count');
+        const filterTravelingCount = document.getElementById('filter-traveling-count');
+        const filterFavoritesCount = document.getElementById('filter-favorites-count');
+        const filterErrorsCount = document.getElementById('filter-errors-count');
+
+        if (filterAllCount) filterAllCount.textContent = counts.all;
+        if (filterOkayCount) filterOkayCount.textContent = counts.okay;
+        if (filterHospitalCount) filterHospitalCount.textContent = counts.hospital;
+        if (filterJailCount) filterJailCount.textContent = counts.jail;
+        if (filterTravelingCount) filterTravelingCount.textContent = counts.traveling;
+        if (filterFavoritesCount) filterFavoritesCount.textContent = counts.favorites;
+        if (filterErrorsCount) filterErrorsCount.textContent = counts.errors;
 
         // Activity bar badge
         if (counts.okay > 0) {
@@ -3428,22 +3767,86 @@
     // SETTINGS
     // ========================================================================
 
+    function applyTheme(theme) {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        // Remove existing theme classes
+        document.body.classList.remove('light-theme', 'dark-theme');
+
+        if (theme === 'light') {
+            document.body.classList.add('light-theme');
+        } else if (theme === 'dark') {
+            // Dark is the default (no class needed)
+            document.body.classList.add('dark-theme');
+        } else if (theme === 'auto') {
+            // Apply based on system preference
+            if (!prefersDark) {
+                document.body.classList.add('light-theme');
+            }
+        }
+    }
+
+    function applyListDensity(density) {
+        // Remove existing density classes
+        document.body.classList.remove('density-compact', 'density-comfortable', 'density-spacious');
+
+        // Apply new density class
+        if (density && density !== 'comfortable') {
+            document.body.classList.add(`density-${density}`);
+        }
+
+        // Refresh target list to apply new density
+        renderTargetList();
+    }
+
     function loadSettings() {
         const settings = window.appState.settings;
 
+        // API Configuration
         document.getElementById('setting-api-key').value = settings.apiKey || '';
         document.getElementById('setting-tornstats-key').value = settings.tornStatsApiKey || '';
+
+        // Refresh Settings
         document.getElementById('setting-auto-refresh').checked = settings.autoRefresh;
         document.getElementById('setting-refresh-interval').value = settings.refreshInterval;
         document.getElementById('setting-concurrent').value = settings.maxConcurrentRequests;
+
+        // Notifications
         document.getElementById('setting-notifications').checked = settings.notifications;
         document.getElementById('setting-sound').checked = settings.soundEnabled;
+        document.getElementById('setting-notify-monitored').checked = settings.notifyOnlyMonitored || false;
+        document.getElementById('setting-notify-hospital').checked = settings.notifyOnHospitalRelease || false;
+        document.getElementById('setting-notify-jail').checked = settings.notifyOnJailRelease || false;
+
+        // Display
+        document.getElementById('setting-theme').value = settings.theme || 'dark';
+        document.getElementById('setting-list-density').value = settings.listDensity || 'comfortable';
+        document.getElementById('setting-show-avatars').checked = settings.showAvatars !== false;
+        document.getElementById('setting-show-offline').checked = settings.showOfflineTargets !== false;
+        document.getElementById('setting-show-badges').checked = settings.showStatusCountBadges !== false;
+        document.getElementById('setting-timestamp-format').value = settings.timestampFormat || '12h';
+        document.getElementById('setting-sort-remember').checked = settings.sortRememberLast !== false;
         document.getElementById('setting-compact').checked = settings.compactMode;
+
+        // Behavior
         document.getElementById('setting-confirm-attack').checked = settings.confirmBeforeAttack;
+        document.getElementById('setting-confirm-delete').checked = settings.confirmBeforeDelete !== false;
+        document.getElementById('setting-attack-sound').checked = settings.playAttackSound || false;
+
+        // Window & Tray
         document.getElementById('setting-minimize-tray').checked = settings.minimizeToTray;
         document.getElementById('setting-start-minimized').checked = settings.startMinimized;
 
+        // Data Management
+        document.getElementById('setting-auto-backup').checked = settings.autoBackupEnabled || false;
+        document.getElementById('setting-backup-interval').value = settings.autoBackupInterval || 7;
+        document.getElementById('setting-max-history').value = settings.maxHistoryEntries || 1000;
+
         document.body.classList.toggle('compact-mode', settings.compactMode);
+
+        // Apply theme and list density
+        applyTheme(settings.theme || 'dark');
+        applyListDensity(settings.listDensity || 'comfortable');
 
         // Set TornStats API key
         if (window.tornStatsAPI && settings.tornStatsApiKey) {
@@ -3607,11 +4010,17 @@
                 'Confirm Attack',
                 `Attack ${target?.getDisplayName() || `User ${userId}`}?`,
                 () => {
+                    if (window.appState.settings.playAttackSound) {
+                        playSound('attack');
+                    }
                     window.electronAPI.openAttack(userId);
                     window.appState.recordAttack(userId, { source });
                 }
             );
         } else {
+            if (window.appState.settings.playAttackSound) {
+                playSound('attack');
+            }
             window.electronAPI.openAttack(userId);
             window.appState.recordAttack(userId, { source });
         }
@@ -4714,6 +5123,26 @@
                 } else {
                     clearInterval(timerInterval);
                     timerElement.style.display = 'none';
+
+                    // Timer reached zero - mark target as okay locally
+                    if (target.isInHospital?.() || target.isInJail?.() || target.isInFederal?.()) {
+                        target.statusState = 'Okay';
+                        target.statusDesc = 'Okay';
+                        target.statusUntil = null;
+                        target.ok = true;
+
+                        // Update the target in state and save
+                        window.appState.targets.set(target.userId, target);
+                        window.appState.saveTargets();
+
+                        // Update the UI to reflect the change
+                        window.appState.emit('target-updated', target);
+
+                        // Update the modal display
+                        document.getElementById('attack-prevention-status-text').textContent = 'Okay';
+                        document.querySelector('#modal-attack-prevention .status-badge')?.classList.remove('status-hospital', 'status-jail', 'status-federal');
+                        document.querySelector('#modal-attack-prevention .status-badge')?.classList.add('status-okay');
+                    }
                 }
             }, 1000);
 
@@ -4791,6 +5220,22 @@
         }
         closeAllModals();
     });
+
+    // ========================================================================
+    // AUDIO PLAYBACK
+    // ========================================================================
+
+    function playSound(soundName) {
+        try {
+            const audio = new Audio(`assets/${soundName}.wav`);
+            audio.volume = 0.5; // 50% volume
+            audio.play().catch(err => {
+                console.warn(`Failed to play sound ${soundName}:`, err);
+            });
+        } catch (error) {
+            console.warn(`Error loading sound ${soundName}:`, error);
+        }
+    }
 
     // ========================================================================
     // TOAST NOTIFICATIONS

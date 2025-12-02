@@ -34,7 +34,21 @@ class AppState {
             minimizeToTray: false,
             startMinimized: false,
             maxConcurrentRequests: 1,
-            theme: 'dark'
+            theme: 'dark',
+            // New settings
+            showAvatars: true,
+            notifyOnlyMonitored: false,
+            notifyOnHospitalRelease: false,
+            notifyOnJailRelease: false,
+            autoBackupEnabled: false,
+            autoBackupInterval: 7, // days
+            maxHistoryEntries: 1000,
+            confirmBeforeDelete: true,
+            showStatusCountBadges: true,
+            playAttackSound: false,
+            timestampFormat: '12h', // '12h' or '24h'
+            listDensity: 'comfortable', // 'compact', 'comfortable', 'spacious'
+            sortRememberLast: true
         };
 
         // Statistics
@@ -1079,12 +1093,51 @@ class AppState {
 
         this.emit('target-updated', info);
 
-        // Notify if target became attackable
-        if (!wasAttackable && isNowAttackable && this.settings.notifications) {
-            window.electronAPI.showNotification(
-                'Target Available!',
-                `${info.getDisplayName()} is now attackable`
-            );
+        // Notification logic with filtering
+        if (this.settings.notifications) {
+            // Check if we should notify for this target
+            const shouldNotify = !this.settings.notifyOnlyMonitored || info.monitorOk;
+            let notificationShown = false;
+
+            // Notify if target became attackable
+            if (!wasAttackable && isNowAttackable && shouldNotify) {
+                window.electronAPI.showNotification(
+                    'Target Available!',
+                    `${info.getDisplayName()} is now attackable`
+                );
+                notificationShown = true;
+            }
+
+            // Notify on hospital release
+            if (existing && this.settings.notifyOnHospitalRelease && shouldNotify) {
+                const wasInHospital = existing.isInHospital();
+                const isNowInHospital = info.isInHospital();
+                if (wasInHospital && !isNowInHospital) {
+                    window.electronAPI.showNotification(
+                        'Target Left Hospital',
+                        `${info.getDisplayName()} is out of hospital`
+                    );
+                    notificationShown = true;
+                }
+            }
+
+            // Notify on jail release
+            if (existing && this.settings.notifyOnJailRelease && shouldNotify) {
+                const wasInJail = existing.isInJail();
+                const isNowInJail = info.isInJail();
+                if (wasInJail && !isNowInJail) {
+                    window.electronAPI.showNotification(
+                        'Target Left Jail',
+                        `${info.getDisplayName()} is out of jail`
+                    );
+                    notificationShown = true;
+                }
+            }
+
+            // Play notification sound if any notification was shown
+            if (notificationShown && this.settings.soundEnabled) {
+                this.emit('play-notification-sound');
+            }
         }
 
         return info;
@@ -1287,21 +1340,21 @@ class AppState {
         }
     }
 
-    startAutoRefresh() {
+    startAutoRefresh(skipInitialRefresh = false) {
         this.stopAutoRefresh();
 
         if (!this.settings.autoRefresh || !this.settings.apiKey) return;
 
         const intervalMs = Math.max(10, this.settings.refreshInterval) * 1000;
-        
+
         this.refreshTimer = setInterval(() => {
             if (!this.isRefreshing) {
                 this.refreshAllTargets();
             }
         }, intervalMs);
 
-        // Initial refresh
-        if (this.targets.size > 0) {
+        // Initial refresh (skip when restarting due to settings change)
+        if (!skipInitialRefresh && this.targets.size > 0 && !this.isRefreshing) {
             this.refreshAllTargets();
         }
     }
@@ -1399,11 +1452,11 @@ class AppState {
             this.api.setApiKey(newSettings.apiKey);
         }
 
-        // Handle auto-refresh changes
-        if (newSettings.autoRefresh !== oldAutoRefresh || 
+        // Handle auto-refresh changes (skip initial refresh to avoid conflicts)
+        if (newSettings.autoRefresh !== oldAutoRefresh ||
             newSettings.refreshInterval !== oldInterval) {
             if (this.settings.autoRefresh && this.settings.apiKey) {
-                this.startAutoRefresh();
+                this.startAutoRefresh(true); // Skip initial refresh when restarting
             } else {
                 this.stopAutoRefresh();
             }
