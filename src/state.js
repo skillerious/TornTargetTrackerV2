@@ -10,6 +10,9 @@
  * - Comprehensive event system
  */
 
+const DEFAULT_API_RATE_LIMIT = 80;
+const MAX_API_RATE_LIMIT = 99;
+
 class AppState {
     constructor() {
         // ====================================================================
@@ -34,6 +37,7 @@ class AppState {
             minimizeToTray: false,
             startMinimized: false,
             maxConcurrentRequests: 1,
+            apiRateLimitPerMinute: DEFAULT_API_RATE_LIMIT,
             theme: 'dark',
             // New settings
             showAvatars: true,
@@ -42,13 +46,23 @@ class AppState {
             notifyOnJailRelease: false,
             autoBackupEnabled: false,
             autoBackupInterval: 7, // days
+            backupRetention: 10,
+            backupBeforeBulk: true,
+            cloudBackupEnabled: false,
+            cloudBackupProvider: 'google-drive',
+            cloudBackupPath: '',
             maxHistoryEntries: 1000,
             confirmBeforeDelete: true,
             showStatusCountBadges: true,
             playAttackSound: false,
             timestampFormat: '12h', // '12h' or '24h'
             listDensity: 'comfortable', // 'compact', 'comfortable', 'spacious'
-            sortRememberLast: true
+            sortRememberLast: true,
+            showOnboarding: true,
+            tornStatsApiKey: '',
+            playerLevel: null,
+            playerName: '',
+            playerId: null
         };
 
         // Statistics
@@ -66,14 +80,17 @@ class AppState {
         this.targetCache = new Map();
         this.cachePersistQueue = new Map();
         this.cachePersistTimer = null;
+        this.intelCacheMs = 15 * 60 * 1000; // 15 minutes
 
         // API
-        this.limiter = new RateLimiter();
+        this.limiter = new RateLimiter(this.settings.apiRateLimitPerMinute);
         this.api = null;
 
         // UI State
         this.currentView = 'targets';
         this.selectedTargetId = null;
+        this.selectedTargetIds = new Set();
+        this.selectionAnchorId = null;
         this.activeGroupId = 'all';
         this.activeFilter = 'all';
         this.searchQuery = '';
@@ -113,6 +130,10 @@ class AppState {
             // Load settings
             const settings = await window.electronAPI.getSettings();
             this.settings = { ...this.settings, ...settings };
+            if (window.tornStatsAPI && this.settings.tornStatsApiKey) {
+                window.tornStatsAPI.setApiKey(this.settings.tornStatsApiKey);
+            }
+            this.limiter.setLimits(this.settings.apiRateLimitPerMinute);
 
             // Initialize API
             this.api = new TornAPI(this.settings.apiKey, this.limiter, {
@@ -272,7 +293,9 @@ class AppState {
             addedAt: Date.now()
         });
 
+        target.difficulty = this.getTargetDifficulty(target);
         const hydrated = this.applyCachedData(target, target);
+        hydrated.difficulty = this.getTargetDifficulty(hydrated);
         this.targets.set(uid, hydrated);
         await this.saveTargets();
         
@@ -330,7 +353,9 @@ class AppState {
                     addedAt: Date.now()
                 });
 
+                target.difficulty = this.getTargetDifficulty(target);
                 const hydrated = this.applyCachedData(target, target);
+                hydrated.difficulty = this.getTargetDifficulty(hydrated);
                 this.targets.set(userId, hydrated);
                 added++;
 
@@ -366,9 +391,15 @@ class AppState {
         this.targets.delete(uid);
         await this.saveTargets();
 
-        if (this.selectedTargetId === uid) {
-            this.selectedTargetId = null;
-            this.emit('selection-changed', null);
+        if (this.selectedTargetIds.has(uid)) {
+            this.selectedTargetIds.delete(uid);
+            if (this.selectedTargetId === uid) {
+                this.selectedTargetId = this.selectedTargetIds.size ? Array.from(this.selectedTargetIds).pop() : null;
+            }
+            if (this.selectedTargetIds.size === 0) {
+                this.selectionAnchorId = null;
+            }
+            this.emitSelectionChanged();
         }
 
         this.emit('target-removed', uid);
@@ -386,21 +417,35 @@ class AppState {
     async removeTargets(userIds) {
         let removed = 0;
 
+        if (Array.isArray(userIds) && userIds.length > 1 && this.settings.backupBeforeBulk !== false) {
+            try {
+                await window.electronAPI?.createBackup?.({ reason: 'bulk-delete' });
+            } catch (error) {
+                this.log('warn', 'Pre-delete backup failed', { error: error.message });
+            }
+        }
+
         for (const userId of userIds) {
             const uid = parseInt(userId, 10);
             if (this.targets.has(uid)) {
                 this.targets.delete(uid);
                 removed++;
 
-                if (this.selectedTargetId === uid) {
-                    this.selectedTargetId = null;
+                if (this.selectedTargetIds.has(uid)) {
+                    this.selectedTargetIds.delete(uid);
                 }
             }
         }
 
         if (removed > 0) {
             await this.saveTargets();
-            this.emit('selection-changed', this.selectedTargetId);
+            if (!this.selectedTargetIds.size) {
+                this.selectedTargetId = null;
+                this.selectionAnchorId = null;
+            } else if (this.selectedTargetId && !this.selectedTargetIds.has(this.selectedTargetId)) {
+                this.selectedTargetId = Array.from(this.selectedTargetIds).pop();
+            }
+            this.emitSelectionChanged();
             this.emit('targets-changed');
             this.statistics.targetsRemoved = (this.statistics.targetsRemoved || 0) + removed;
             this.emit('statistics-changed');
@@ -479,6 +524,97 @@ class AppState {
         this.emit('targets-changed');
 
         return { success: true, target, previousGroupId };
+    }
+
+    /**
+     * Bulk move targets to a group
+     */
+    async bulkMoveTargets(userIds, newGroupId) {
+        const ids = Array.from(new Set((userIds || []).map(id => parseInt(id, 10)).filter(id => Number.isFinite(id))));
+        if (!ids.length) return { success: false, error: 'No targets selected' };
+
+        const destination = newGroupId === 'default'
+            ? this.getGroup('default') || { id: 'default', name: 'All Targets' }
+            : this.getGroup(newGroupId);
+
+        if (!destination) {
+            return { success: false, error: 'Group not found' };
+        }
+
+        const previousGroups = new Map();
+        const updatedTargets = [];
+        ids.forEach(uid => {
+            const target = this.targets.get(uid);
+            if (target && target.groupId !== newGroupId) {
+                previousGroups.set(uid, target.groupId);
+                target.groupId = newGroupId;
+                updatedTargets.push(target);
+            }
+        });
+
+        if (!updatedTargets.length) {
+            return { success: true, moved: 0, destination: destination.id };
+        }
+
+        try {
+            await this.saveTargetsImmediate();
+        } catch (error) {
+            previousGroups.forEach((groupId, uid) => {
+                const target = this.targets.get(uid);
+                if (target) target.groupId = groupId;
+            });
+            this.log('error', 'Failed to bulk move targets', { error: error.message });
+            return { success: false, error: 'Failed to save group changes' };
+        }
+
+        updatedTargets.forEach(t => this.emit('target-updated', t));
+        this.emit('targets-changed');
+
+        return { success: true, moved: updatedTargets.length, destination: destination.id };
+    }
+
+    /**
+     * Bulk add tags to targets
+     */
+    async addTagsToTargets(userIds, tags) {
+        const normalizedTags = Array.from(new Set((tags || [])
+            .map(t => (t || '').trim())
+            .filter(t => t.length > 0)
+        ));
+        if (!normalizedTags.length) {
+            return { success: false, error: 'No tags to add' };
+        }
+
+        const ids = Array.from(new Set((userIds || []).map(id => parseInt(id, 10)).filter(id => Number.isFinite(id))));
+        if (!ids.length) {
+            return { success: false, error: 'No targets selected' };
+        }
+
+        const updated = [];
+        ids.forEach(uid => {
+            const target = this.targets.get(uid);
+            if (!target) return;
+            const existing = Array.isArray(target.tags) ? target.tags : [];
+            const merged = Array.from(new Set([...existing, ...normalizedTags]));
+            target.tags = merged;
+            updated.push(target);
+        });
+
+        if (!updated.length) {
+            return { success: false, error: 'No targets updated' };
+        }
+
+        try {
+            await this.saveTargetsImmediate();
+        } catch (error) {
+            this.log('error', 'Failed to add tags to targets', { error: error.message });
+            return { success: false, error: 'Failed to save tag changes' };
+        }
+
+        updated.forEach(t => this.emit('target-updated', t));
+        this.emit('targets-changed');
+
+        return { success: true, count: updated.length, tags: normalizedTags };
     }
 
     /**
@@ -707,9 +843,136 @@ class AppState {
     /**
      * Select a target
      */
-    selectTarget(userId) {
-        this.selectedTargetId = userId ? parseInt(userId, 10) : null;
-        this.emit('selection-changed', this.selectedTargetId);
+    selectTarget(userId, options = {}) {
+        const uid = userId ? parseInt(userId, 10) : null;
+
+        if (options.toggle) {
+            this.toggleSelection(uid);
+            return;
+        }
+
+        if (options.range && Array.isArray(options.rangeIds)) {
+            const normalizedRange = options.rangeIds
+                .map(id => parseInt(id, 10))
+                .filter(id => Number.isFinite(id));
+            this.setSelection(normalizedRange, options.anchorId ?? this.selectionAnchorId ?? uid, uid);
+            return;
+        }
+
+        this.setSelection(uid ? [uid] : [], options.anchorId ?? uid, uid);
+    }
+
+    /**
+     * Set selection to a list of ids
+     */
+    setSelection(userIds = [], anchorId = undefined, primaryId = undefined) {
+        const normalized = Array.from(new Set(
+            (userIds || [])
+                .map(id => parseInt(id, 10))
+                .filter(id => Number.isFinite(id))
+        ));
+
+        if (primaryId !== undefined && primaryId !== null) {
+            const pid = parseInt(primaryId, 10);
+            if (Number.isFinite(pid) && !normalized.includes(pid)) {
+                normalized.push(pid);
+            }
+        }
+
+        this.selectedTargetIds = new Set(normalized);
+        this.selectedTargetId = normalized.length
+            ? (primaryId !== undefined && primaryId !== null
+                ? parseInt(primaryId, 10)
+                : normalized[normalized.length - 1])
+            : null;
+        if (anchorId !== undefined) {
+            this.selectionAnchorId = anchorId;
+        } else {
+            this.selectionAnchorId = normalized.length ? normalized[0] : null;
+        }
+        this.emitSelectionChanged();
+    }
+
+    /**
+     * Toggle selection of a single id
+     */
+    toggleSelection(userId) {
+        const uid = parseInt(userId, 10);
+        if (!Number.isFinite(uid)) {
+            this.clearSelection();
+            return;
+        }
+        const wasSelected = this.selectedTargetIds.has(uid);
+        if (wasSelected) {
+            this.selectedTargetIds.delete(uid);
+        } else {
+            this.selectedTargetIds.add(uid);
+        }
+
+        if (this.selectedTargetIds.size === 0) {
+            this.selectedTargetId = null;
+            this.selectionAnchorId = null;
+        } else {
+            this.selectedTargetId = wasSelected
+                ? Array.from(this.selectedTargetIds).pop()
+                : uid;
+            if (!this.selectionAnchorId || !this.selectedTargetIds.has(this.selectionAnchorId)) {
+                this.selectionAnchorId = Array.from(this.selectedTargetIds)[0];
+            }
+        }
+        this.emitSelectionChanged();
+    }
+
+    /**
+     * Select a range of ids (orderedIds should reflect current list order)
+     */
+    selectRangeBetween(anchorId, targetId, orderedIds = []) {
+        const anchor = parseInt(anchorId, 10);
+        const target = parseInt(targetId, 10);
+        if (!Number.isFinite(anchor) || !Number.isFinite(target)) {
+            this.selectTarget(targetId);
+            return;
+        }
+
+        const anchorIndex = orderedIds.indexOf(anchor);
+        const targetIndex = orderedIds.indexOf(target);
+        if (anchorIndex === -1 || targetIndex === -1) {
+            this.selectTarget(targetId);
+            return;
+        }
+
+        const [start, end] = anchorIndex <= targetIndex
+            ? [anchorIndex, targetIndex]
+            : [targetIndex, anchorIndex];
+        const rangeIds = orderedIds.slice(start, end + 1);
+        this.setSelection(rangeIds, anchor, target);
+    }
+
+    /**
+     * Select all ids in an array
+     */
+    selectAll(userIds = []) {
+        this.setSelection(userIds, userIds.length ? userIds[0] : null, userIds.length ? userIds[userIds.length - 1] : null);
+    }
+
+    /**
+     * Clear selection
+     */
+    clearSelection() {
+        this.selectedTargetIds.clear();
+        this.selectedTargetId = null;
+        this.selectionAnchorId = null;
+        this.emitSelectionChanged();
+    }
+
+    /**
+     * Emit selection change payload
+     */
+    emitSelectionChanged() {
+        this.emit('selection-changed', {
+            primaryId: this.selectedTargetId,
+            selectedIds: Array.from(this.selectedTargetIds)
+        });
     }
 
     /**
@@ -718,6 +981,14 @@ class AppState {
     getSelectedTarget() {
         if (!this.selectedTargetId) return null;
         return this.targets.get(this.selectedTargetId);
+    }
+
+    getSelectedIds() {
+        return Array.from(this.selectedTargetIds);
+    }
+
+    getSelectedTargets() {
+        return Array.from(this.selectedTargetIds).map(id => this.targets.get(id)).filter(Boolean);
     }
 
     // ========================================================================
@@ -792,6 +1063,37 @@ class AppState {
             return null;
         };
 
+        const cloneIntel = (intel) => {
+            if (!intel) return null;
+            return {
+                ...intel,
+                stats: intel.stats ? { ...intel.stats } : null,
+                compare: intel.compare ? { ...intel.compare } : null,
+                attacks: intel.attacks ? { ...intel.attacks } : null
+            };
+        };
+
+        const pickIntel = (...candidates) => {
+            const valid = candidates.filter(Boolean);
+            if (!valid.length) return null;
+
+            const best = valid.reduce((acc, curr) => {
+                if (!acc) return curr;
+                const accTs = acc.fetchedAt || acc.lastSeen || 0;
+                const currTs = curr.fetchedAt || curr.lastSeen || 0;
+                return currTs > accTs ? curr : acc;
+            }, null);
+
+            return cloneIntel(best);
+        };
+
+        const pickDifficulty = (...candidates) => {
+            for (const d of candidates) {
+                if (d) return { ...d };
+            }
+            return null;
+        };
+
         const merged = new TargetInfo({
             userId: target.userId,
             name: preferString(incoming.name, cached?.name, base.name, `User ${target.userId}`),
@@ -822,7 +1124,9 @@ class AppState {
             avatarUrl: preferString(incoming.avatarUrl, cached?.avatarUrl, base.avatarUrl),
             avatarPath: preferString(incoming.avatarPath, cached?.avatarPath, base.avatarPath),
             attackCount: preferNumber(incoming.attackCount, cached?.attackCount, base.attackCount) || 0,
-            lastAttacked: preferNumber(incoming.lastAttacked, cached?.lastAttacked, base.lastAttacked)
+            lastAttacked: preferNumber(incoming.lastAttacked, cached?.lastAttacked, base.lastAttacked),
+            intel: pickIntel(incoming.intel, cached?.intel, base.intel),
+            difficulty: pickDifficulty(incoming.difficulty, cached?.difficulty, base.difficulty)
         });
 
         // Preserve last known good name if we only have a placeholder
@@ -874,6 +1178,140 @@ class AppState {
             await window.electronAPI.upsertTargetCache(batch);
         } catch (error) {
             this.log('warn', 'Failed to persist target cache', { error: error.message });
+        }
+    }
+
+    // ========================================================================
+    // TARGET INTELLIGENCE & DIFFICULTY
+    // ========================================================================
+
+    getTargetDifficulty(target) {
+        if (!target) {
+            return {
+                label: 'Unknown',
+                code: 'unknown',
+                className: 'difficulty-unknown',
+                ratio: null,
+                advice: 'No target selected'
+            };
+        }
+
+        const playerLevel = Number(this.settings.playerLevel);
+        const targetLevel = Number(target.level);
+
+        if (!playerLevel || !targetLevel) {
+            return {
+                label: 'Unknown',
+                code: 'unknown',
+                className: 'difficulty-unknown',
+                ratio: null,
+                advice: playerLevel ? 'Target level missing' : 'Set your level in Settings to score difficulty'
+            };
+        }
+
+        const ratio = targetLevel / playerLevel;
+        let code = 'even';
+        let label = 'Even';
+        let advice = 'Comparable level opponent.';
+
+        if (ratio <= 0.7) {
+            code = 'easy';
+            label = 'Easy';
+            advice = 'Well below your level; safe opener.';
+        } else if (ratio <= 1.05) {
+            code = 'even';
+            label = 'Even';
+            advice = 'Within your level range; fair fight bonus likely.';
+        } else if (ratio <= 1.35) {
+            code = 'tough';
+            label = 'Challenging';
+            advice = 'Higher level; bring boosts or support.';
+        } else {
+            code = 'deadly';
+            label = 'Deadly';
+            advice = 'Significantly higher level; approach cautiously.';
+        }
+
+        // Lightly adjust using intel stats when available
+        const totalStats = target.intel?.stats?.total;
+        if (totalStats) {
+            if (totalStats > 2000000000 && code !== 'deadly') {
+                code = 'deadly';
+                label = 'Overpowered';
+                advice = 'Intel shows extremely high battle stats.';
+            } else if (totalStats > 750000000 && code === 'even') {
+                code = 'tough';
+                label = 'Challenging';
+                advice = 'Intel suggests stronger stats than level indicates.';
+            }
+        }
+
+        return {
+            label,
+            code,
+            className: `difficulty-${code}`,
+            ratio: Number(ratio.toFixed(2)),
+            advice,
+            playerLevel,
+            targetLevel
+        };
+    }
+
+    async fetchTargetIntel(userId, { force = false } = {}) {
+        const uid = parseInt(userId, 10);
+        const target = this.targets.get(uid);
+        if (!target) return { error: 'Target not found' };
+
+        if (!window.tornStatsAPI || !window.tornStatsAPI.apiKey) {
+            return { error: 'TornStats API key not configured' };
+        }
+
+        const now = Date.now();
+        const existing = target.intel;
+        if (!force && existing?.fetchedAt && now - existing.fetchedAt < this.intelCacheMs) {
+            return existing;
+        }
+
+        try {
+            const intel = await window.tornStatsAPI.fetchSpy(uid, { force });
+            const payload = {
+                source: 'tornstats',
+                status: intel?.status !== false,
+                message: intel?.message || (intel?.stats ? 'Intel available' : 'Intel unavailable'),
+                stats: intel?.stats || null,
+                compare: intel?.compare || null,
+                attacks: intel?.attacks || null,
+                fetchedAt: intel?.fetchedAt || now,
+                lastSeen: intel?.timestamp || intel?.lastSeen || null,
+                type: intel?.type || intel?.stats?.type || ''
+            };
+
+            target.intel = payload;
+            target.difficulty = this.getTargetDifficulty(target);
+            this.targets.set(uid, target);
+            await this.saveTargetsImmediate();
+            this.queueCachePersist(target);
+            this.emit('target-updated', target);
+            return payload;
+        } catch (error) {
+            const payload = {
+                source: 'tornstats',
+                status: false,
+                message: error.message || 'Failed to fetch intelligence',
+                fetchedAt: now,
+                error: error.message
+            };
+
+            target.intel = payload;
+            target.difficulty = this.getTargetDifficulty(target);
+            this.targets.set(uid, target);
+            try {
+                await this.saveTargetsImmediate();
+            } catch {
+                // already logged elsewhere
+            }
+            this.emit('target-updated', target);
+            return payload;
         }
     }
 
@@ -1034,6 +1472,7 @@ class AppState {
             const fallback = existing || new TargetInfo({ userId: uid });
             fallback.error = error.message;
             fallback.lastUpdated = Date.now();
+            fallback.difficulty = this.getTargetDifficulty(fallback);
             this.targets.set(uid, fallback);
             try {
                 await this.saveTargetsImmediate();
@@ -1065,6 +1504,7 @@ class AppState {
 
         // Merge with cache/existing data to prevent regressions on fetch errors
         info = this.applyCachedData(info, existing);
+        info.difficulty = this.getTargetDifficulty(info);
 
         // If fetch failed, keep cache/existing data but mark error for visibility
         if (info.error) {
@@ -1443,23 +1883,71 @@ class AppState {
         const oldApiKey = this.settings.apiKey;
         const oldAutoRefresh = this.settings.autoRefresh;
         const oldInterval = this.settings.refreshInterval;
+        const oldTornStatsKey = this.settings.tornStatsApiKey;
+        const oldPlayerLevel = this.settings.playerLevel;
+        const oldRateLimit = this.settings.apiRateLimitPerMinute;
 
-        this.settings = { ...this.settings, ...newSettings };
+        const normalizedSettings = { ...newSettings };
+        if (normalizedSettings.playerLevel !== undefined) {
+            const lvl = Number(normalizedSettings.playerLevel);
+            normalizedSettings.playerLevel = Number.isFinite(lvl) && lvl > 0 ? lvl : null;
+        }
+        if (normalizedSettings.apiRateLimitPerMinute !== undefined) {
+            const limit = Number.parseInt(normalizedSettings.apiRateLimitPerMinute, 10);
+            const clamped = Number.isFinite(limit) ? limit : oldRateLimit || DEFAULT_API_RATE_LIMIT;
+            normalizedSettings.apiRateLimitPerMinute = Math.max(1, Math.min(MAX_API_RATE_LIMIT, clamped));
+        }
+        if (normalizedSettings.autoBackupInterval !== undefined) {
+            const interval = Number.parseInt(normalizedSettings.autoBackupInterval, 10);
+            normalizedSettings.autoBackupInterval = Number.isFinite(interval)
+                ? Math.min(Math.max(interval, 1), 30)
+                : this.settings.autoBackupInterval;
+        }
+        if (normalizedSettings.backupRetention !== undefined) {
+            const retention = Number.parseInt(normalizedSettings.backupRetention, 10);
+            normalizedSettings.backupRetention = Number.isFinite(retention)
+                ? Math.min(Math.max(retention, 3), 50)
+                : this.settings.backupRetention || 10;
+        }
+
+        this.settings = { ...this.settings, ...normalizedSettings };
         await window.electronAPI.saveSettings(this.settings);
 
         // Update API key
-        if (newSettings.apiKey !== undefined && newSettings.apiKey !== oldApiKey) {
-            this.api.setApiKey(newSettings.apiKey);
+        if (normalizedSettings.apiKey !== undefined && normalizedSettings.apiKey !== oldApiKey) {
+            this.api.setApiKey(normalizedSettings.apiKey);
         }
 
         // Handle auto-refresh changes (skip initial refresh to avoid conflicts)
-        if (newSettings.autoRefresh !== oldAutoRefresh ||
-            newSettings.refreshInterval !== oldInterval) {
+        if (normalizedSettings.autoRefresh !== oldAutoRefresh ||
+            normalizedSettings.refreshInterval !== oldInterval) {
             if (this.settings.autoRefresh && this.settings.apiKey) {
                 this.startAutoRefresh(true); // Skip initial refresh when restarting
             } else {
                 this.stopAutoRefresh();
             }
+        }
+
+        // Sync TornStats API key
+        if (normalizedSettings.tornStatsApiKey !== undefined && normalizedSettings.tornStatsApiKey !== oldTornStatsKey) {
+            if (window.tornStatsAPI) {
+                window.tornStatsAPI.setApiKey(normalizedSettings.tornStatsApiKey || '');
+                window.tornStatsAPI.clearCache();
+            }
+        }
+
+        // Recompute difficulty scores when player level changes
+        if (normalizedSettings.playerLevel !== undefined && normalizedSettings.playerLevel !== oldPlayerLevel) {
+            this.targets.forEach((t, id) => {
+                t.difficulty = this.getTargetDifficulty(t);
+                this.targets.set(id, t);
+            });
+            this.saveTargets();
+            this.emit('targets-changed');
+        }
+
+        if (normalizedSettings.apiRateLimitPerMinute !== undefined && normalizedSettings.apiRateLimitPerMinute !== oldRateLimit) {
+            this.limiter.setLimits(normalizedSettings.apiRateLimitPerMinute);
         }
 
         this.emit('settings-changed');

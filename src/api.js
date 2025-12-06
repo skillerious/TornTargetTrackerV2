@@ -26,6 +26,7 @@ const API_CONFIG = {
     RATE_LIMIT_PER_MINUTE: 80,
     RATE_LIMIT_WINDOW_MS: 60000,
     RATE_LIMIT_COOLDOWN_MS: 65000,
+    MAX_RATE_LIMIT_PER_MINUTE: 99,
     USER_AGENT: 'TornTargetTracker/2.0',
     SELECTIONS: {
         USER_BASIC: 'basic,profile',
@@ -126,11 +127,11 @@ class RateLimiter {
         windowMs = API_CONFIG.RATE_LIMIT_WINDOW_MS,
         cooldownMs = API_CONFIG.RATE_LIMIT_COOLDOWN_MS
     ) {
-        this.maxTokens = maxTokens;
+        this.maxTokens = this.normalizeLimit(maxTokens);
         this.windowMs = windowMs;
         this.cooldownMs = cooldownMs;
 
-        this.tokens = maxTokens;
+        this.tokens = this.maxTokens;
         this.lastRequestTimestamp = 0;
 
         // Backoff / cooldown tracking
@@ -160,6 +161,37 @@ class RateLimiter {
         // Auto-update timer for smoother UI updates
         this.refillTimer = null;
         this.startAutoRefill();
+    }
+
+    /**
+     * Normalize a provided token limit against caps and sensible defaults
+     */
+    normalizeLimit(limit) {
+        const cap = API_CONFIG.MAX_RATE_LIMIT_PER_MINUTE || 99;
+        const parsed = Number.parseInt(limit, 10);
+        const base = Number.isFinite(parsed) ? parsed : API_CONFIG.RATE_LIMIT_PER_MINUTE;
+        return Math.max(1, Math.min(cap, base));
+    }
+
+    /**
+     * Update limiter configuration (used when user changes rate limit)
+     */
+    setLimits(maxTokens, windowMs = this.windowMs, cooldownMs = this.cooldownMs) {
+        this.maxTokens = this.normalizeLimit(maxTokens);
+        this.windowMs = windowMs || this.windowMs;
+        this.cooldownMs = cooldownMs || this.cooldownMs;
+
+        // Recompute tokens based on the new window size
+        this.cleanRequestLog();
+        if (this.cooldownUntil && Date.now() >= this.cooldownUntil) {
+            this.resetAfterCooldown();
+        } else {
+            this.tokens = Math.max(0, this.maxTokens - this.requestLog.length);
+        }
+
+        if (this.onStatusChange) {
+            this.onStatusChange(this.getStatus());
+        }
     }
 
     /**
@@ -518,6 +550,15 @@ class TargetInfo {
         // Statistics
         this.attackCount = data.attackCount || 0;
         this.lastAttacked = data.lastAttacked || null;
+
+        // Intelligence
+        this.intel = data.intel ? {
+            ...data.intel,
+            stats: data.intel.stats ? { ...data.intel.stats } : null,
+            compare: data.intel.compare ? { ...data.intel.compare } : null,
+            attacks: data.intel.attacks ? { ...data.intel.attacks } : null
+        } : null;
+        this.difficulty = data.difficulty ? { ...data.difficulty } : null;
     }
 
     /**
@@ -677,7 +718,14 @@ class TargetInfo {
             avatarUrl: this.avatarUrl,
             avatarPath: this.avatarPath,
             attackCount: this.attackCount,
-            lastAttacked: this.lastAttacked
+            lastAttacked: this.lastAttacked,
+            intel: this.intel ? {
+                ...this.intel,
+                stats: this.intel.stats ? { ...this.intel.stats } : null,
+                compare: this.intel.compare ? { ...this.intel.compare } : null,
+                attacks: this.intel.attacks ? { ...this.intel.attacks } : null
+            } : null,
+            difficulty: this.difficulty ? { ...this.difficulty } : null
         };
     }
 
@@ -711,6 +759,7 @@ class TornAPI {
         this.isOnline = true;
         this.lastSuccessfulRequest = null;
         this.consecutiveFailures = 0;
+        this.lastRequestDuration = 0;
 
         // Callbacks
         this.onConnectionChange = null;
@@ -1130,6 +1179,9 @@ class TornAPI {
             ? this.combineAbortSignals(signal, controller.signal)
             : controller.signal;
 
+        // Track request timing
+        const startTime = Date.now();
+
         try {
             const response = await fetch(url, {
                 method: 'GET',
@@ -1141,6 +1193,9 @@ class TornAPI {
             });
 
             clearTimeout(timeoutId);
+
+            // Calculate latency
+            this.lastRequestDuration = Date.now() - startTime;
 
             // Handle rate limiting
             if (response.status === 429) {
@@ -1168,7 +1223,7 @@ class TornAPI {
                 throw error;
             }
 
-            if (error.name === 'TypeError' && 
+            if (error.name === 'TypeError' &&
                 (error.message.includes('fetch') || error.message.includes('network'))) {
                 throw new NetworkError(error.message, error);
             }
@@ -1616,7 +1671,9 @@ class TornStatsAPI {
         this.baseUrl = 'https://www.tornstats.com/api/v2';
         this.apiKey = null;
         this.cache = new Map();
+        this.cacheTimestamps = new Map();
         this.cacheTimeout = 30000; // 30 seconds
+        this.spyCacheTimeout = 15 * 60 * 1000; // 15 minutes
         this.lastFetch = null;
         this.rateLimitPerMinute = 100;
         this.requestTimes = [];
@@ -1789,9 +1846,156 @@ class TornStatsAPI {
         }
     }
 
+    /**
+     * Fetch spy/intel data for a specific user
+     * @param {number} userId
+     * @param {Object} options
+     * @param {boolean} options.force - Bypass cache when true
+     * @returns {Promise<Object>}
+     */
+    async fetchSpy(userId, { force = false } = {}) {
+        if (!this.apiKey || this.apiKey.trim() === '') {
+            throw new Error('TornStats API key not set');
+        }
+
+        if (!this.apiKey.startsWith('TS_')) {
+            throw new Error('Invalid TornStats API key format. Keys should start with \"TS_\"');
+        }
+
+        if (!InputParser.isValidUserId(userId)) {
+            throw new Error('Invalid user ID for intelligence lookup');
+        }
+
+        const uid = parseInt(userId, 10);
+        const cacheKey = `spy-${uid}`;
+        const cached = this.cache.get(cacheKey);
+        const cachedAt = this.cacheTimestamps.get(cacheKey) || 0;
+
+        if (!force && cached && Date.now() - cachedAt < this.spyCacheTimeout) {
+            return cached;
+        }
+
+        await this.checkRateLimit();
+
+        const url = `${this.baseUrl}/${this.apiKey}/spy/user/${uid}`;
+
+        try {
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'TornTargetTracker/2.0'
+                },
+                timeout: 12000
+            });
+
+            const rawBody = await response.text();
+            const contentType = response.headers.get('content-type') || '';
+            let data = null;
+            try {
+                data = rawBody ? JSON.parse(rawBody) : null;
+            } catch (parseError) {
+                // Non-JSON response is treated as maintenance/unavailable
+            }
+
+            const maintenanceDetected = rawBody && rawBody.toLowerCase().includes('maintenance');
+            const looksHtml = contentType.includes('text/html') || (rawBody && rawBody.trim().startsWith('<'));
+
+            if (!response.ok) {
+                if (response.status === 404) {
+                    if (maintenanceDetected || looksHtml) {
+                        throw new Error('TornStats is currently down for maintenance (HTTP 404)');
+                    }
+                    throw new Error('TornStats spy endpoint unavailable (404)');
+                } else if (response.status === 401 || response.status === 403) {
+                    throw new Error('Invalid or unauthorized TornStats API key');
+                } else if (response.status === 429) {
+                    throw new Error('TornStats rate limit exceeded. Please wait before trying again');
+                } else if (response.status >= 500 || maintenanceDetected || looksHtml) {
+                    throw new Error('TornStats server unavailable. Please try again later');
+                } else {
+                    throw new Error(`TornStats API error: ${response.status} ${response.statusText}`);
+                }
+            }
+
+            if (!data || typeof data !== 'object') {
+                throw new Error('TornStats API returned empty or invalid intel data');
+            }
+
+            if (data.error) {
+                throw new Error(data.error.error || data.error.message || 'TornStats API returned an error');
+            }
+
+            const parsed = {
+                ...this.parseSpyData(data),
+                fetchedAt: Date.now()
+            };
+
+            this.cache.set(cacheKey, parsed);
+            this.cacheTimestamps.set(cacheKey, Date.now());
+
+            return parsed;
+        } catch (error) {
+            console.error('TornStats spy fetch error:', error);
+
+            if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+                throw new Error('Network error: Unable to connect to TornStats');
+            }
+
+            throw error;
+        }
+    }
+
+    /**
+     * Parse TornStats spy payload into a normalized structure
+     * @param {Object} data
+     * @returns {{status: boolean, message: string, stats?: Object, attacks?: Object, compare?: Object, timestamp?: number, type?: string}}
+     */
+    parseSpyData(data) {
+        const root = data?.compare || data || {};
+        const spy = root.spy || data?.spy || null;
+        const attacks = root.attacks || data?.attacks || null;
+        const compare = root.data || null;
+
+        const normalizeNumber = (value) => {
+            const num = parseFloat(value);
+            return Number.isFinite(num) ? num : null;
+        };
+
+        const stats = spy ? {
+            strength: normalizeNumber(spy.strength),
+            defense: normalizeNumber(spy.defense),
+            speed: normalizeNumber(spy.speed),
+            dexterity: normalizeNumber(spy.dexterity),
+            total: normalizeNumber(spy.total),
+            targetScore: normalizeNumber(spy.target_score),
+            yourScore: normalizeNumber(spy.your_score),
+            fairFight: normalizeNumber(spy.fair_fight_bonus),
+            difference: spy.difference || '',
+            type: spy.type || ''
+        } : null;
+
+        const ts = normalizeNumber(root.timestamp || spy?.timestamp);
+        const timestamp = ts ? ts * 1000 : null;
+        const resolvedStatus = spy?.status !== undefined && spy?.status !== null
+            ? !!spy.status
+            : (root.status !== undefined && root.status !== null ? !!root.status : !!spy);
+
+        return {
+            status: resolvedStatus,
+            message: spy?.message || root.message || data?.message || (stats ? 'Intel available' : 'No intel available'),
+            stats,
+            attacks,
+            compare,
+            timestamp,
+            type: spy?.type || ''
+        };
+    }
+
     clearCache() {
         this.cache.clear();
         this.lastFetch = null;
+        this.cacheTimestamps.clear();
     }
 }
 

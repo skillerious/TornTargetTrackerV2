@@ -56,10 +56,12 @@
         detailFavoriteBtn: null,
         detailLevel: null,
         detailFaction: null,
+        detailTags: null,
         detailLevelChip: null,
         detailFactionChip: null,
         detailStatusChip: null,
         detailUpdatedChip: null,
+        detailDifficultyChip: null,
         detailMonitorOk: null,
         detailWatchBtn: null,
         detailWatchIcon: null,
@@ -72,6 +74,19 @@
         detailGroup: null,
         detailCustomName: null,
         detailNotes: null,
+        detailNotesTemplates: null,
+        btnRefreshIntel: null,
+        detailIntelSection: null,
+        detailIntelStatus: null,
+        detailIntelMessage: null,
+        detailIntelUpdated: null,
+        detailIntelSource: null,
+        detailIntelStr: null,
+        detailIntelDef: null,
+        detailIntelSpd: null,
+        detailIntelDex: null,
+        detailIntelTotal: null,
+        detailIntelFreshness: null,
         detailHistoryList: null,
 
         // Action buttons
@@ -82,6 +97,12 @@
 
         // Status bar
         statusConnection: null,
+        statusConnectionText: null,
+        statusConnectionDetail: null,
+        statusSignalBadges: null,
+        statusNextRefresh: null,
+        statusNextRefreshText: null,
+        statusRefreshMode: null,
         statusRefresh: null,
         refreshText: null,
         progressFill: null,
@@ -89,6 +110,42 @@
         attackableText: null,
         targetsText: null,
         rateText: null,
+        ratePopoverAvailable: null,
+        ratePopoverRecent: null,
+        ratePopoverUtilization: null,
+        ratePopoverPenalty: null,
+        ratePopoverPenaltyRow: null,
+        ratePopoverSuccess: null,
+        ratePopoverFailed: null,
+
+        // Command palette
+        commandPaletteOverlay: null,
+        commandPaletteInput: null,
+        commandPaletteList: null,
+        commandPaletteEmpty: null,
+
+        // Onboarding
+        onboardingOverlay: null,
+        onboardingTabs: null,
+        onboardingSteps: null,
+        onboardingProgressBar: null,
+        onboardingPrev: null,
+        onboardingNext: null,
+        onboardingSkip: null,
+        onboardingClose: null,
+        onboardingHideToggle: null,
+        onboardingConnectionStatus: null,
+        onboardingLatency: null,
+        onboardingRate: null,
+        onboardingTargetCount: null,
+        onboardingAttackableCount: null,
+        onboardingGroupCount: null,
+        onboardingNotifyStatus: null,
+        onboardingSmartTitle: null,
+        onboardingSmartCopy: null,
+        onboardingStatusKey: null,
+        onboardingStatusTargets: null,
+        onboardingStatusAlerts: null,
 
         // Modals
         modalAddTarget: null,
@@ -106,6 +163,17 @@
         aboutLastRefresh: null,
         aboutOpenLog: null,
         attackPreventionNotifyBtn: null,
+
+        // Connection Dialog
+        connectionDialog: null,
+        closeConnectionDialog: null,
+        connTornApi: null,
+        connInternet: null,
+        connTornStats: null,
+        apiRate: null,
+        apiLatency: null,
+        netStatus: null,
+        statsLastFetch: null,
 
         // Context menu
         contextMenu: null,
@@ -127,7 +195,23 @@
         historyStatTop: null,
 
         // Loading
-        loadingOverlay: null
+        loadingOverlay: null,
+
+        // Settings
+        settingPlayerLevel: null,
+        settingBackupRetention: null,
+        settingBackupPreop: null,
+        settingCloudBackup: null,
+        settingCloudProvider: null,
+        btnCloudPath: null,
+        cloudBackupPath: null
+    };
+
+    const INTEL_STALE_MS = 15 * 60 * 1000;
+    const NOTES_TEMPLATES = {
+        stealth: 'Stealth opener: Smoke -> Flash -> melee finisher. Avoid high dex opponents and strike right after travel.',
+        breaker: 'Armor breaker: Lead with incendiary/penetrating rounds, then swap to melee once armor is stripped. Carry FAKs.',
+        chain: 'Chain closer: Boost to full energy, target high-respect hits, keep revives ready and exit quickly after attack.'
     };
 
     // ========================================================================
@@ -142,12 +226,23 @@
     let bulkPreviewIds = [];
     let avatarLoadToken = 0;
     let appInfoCache = null;
+    let connectionCheckInProgress = false;
     let attackPreventionTargetId = null;
     const activeCountdownTargets = new Set();
     const reminderWatchers = new Map();
     const recentReadyNotifications = new Map();
     let historyFilters = { range: '24h', query: '', queryLower: '' };
     let appInitialized = false;
+    let onboardingStepIndex = 0;
+    let onboardingResumeStep = null;
+    let onboardingWaitCondition = null;
+
+    const smartStatusState = {
+        nextRefreshAt: null,
+        refreshIntervalMs: null,
+        autoRefreshEnabled: false,
+        lastRefreshAt: null
+    };
 
     const menubarState = {
         activeMenuId: null,
@@ -158,6 +253,12 @@
     let menubarButtons = [];
     let menubarEntries = [];
 
+    const commandPaletteState = {
+        commands: [],
+        filtered: [],
+        highlightIndex: 0
+    };
+
     // ========================================================================
     // MENUBAR CONFIGURATION
     // ========================================================================
@@ -167,7 +268,7 @@
             id: 'file',
             label: 'File',
             items: [
-                { id: 'new-target', label: 'New Target...', shortcut: 'Ctrl+N', enabled: () => appInitialized, action: () => openModal('modal-add-target') },
+                { id: 'new-target', label: 'New Target...', shortcut: 'Ctrl+N', enabled: () => appInitialized, action: () => openModal('modal-add-target'), icon: 'menu-new-target.svg' },
                 { id: 'bulk-add', label: 'Bulk Add Targets...', shortcut: 'Ctrl+Shift+B', enabled: () => appInitialized, action: () => openModal('modal-bulk-add'), icon: 'menu-bulk-add.svg' },
                 { type: 'separator' },
                 { id: 'import-targets', label: 'Import Targets...', shortcut: 'Ctrl+Shift+O', enabled: () => appInitialized, action: handleImportTargets, icon: 'menu-import.svg' },
@@ -239,6 +340,7 @@
             id: 'help',
             label: 'Help',
             items: [
+                { id: 'launch-onboarding', label: 'Launch Onboarding', shortcut: 'F1', action: () => showOnboarding(true), icon: 'menu-onboarding.svg' },
                 { id: 'open-data-folder', label: 'Open Data Folder', enabled: () => appInitialized, action: openDataFolder, icon: 'menu-data-folder.svg' },
                 { id: 'about', label: 'About Torn Target Tracker', action: showAboutModal, icon: 'menu-about.svg' }
             ]
@@ -268,8 +370,9 @@
         'menu-compact.svg': '<path fill="currentColor" d="M4 5h8v6H4V5zm0 8h8v6H4v-6zm10-8h6v4h-6V5zm0 6h6v8h-6v-8z"/>',
         'menu-tray.svg': '<path fill="currentColor" d="M20 13h-5v2h-6v-2H4v6h16v-6zm0-8H4a2 2 0 0 0-2 2v8h4v-2h10v2h4V7a2 2 0 0 0-2-2z"/>',
         'menu-collapse.svg': '<path fill="currentColor" d="M7 10h2V6h4v4h2l-4 4-4-4zm10 4h-2v4H9v-4H7l4-4 4 4z"/>',
-        'menu-data-folder.svg': '<path fill="currentColor" d="M10 4 8 6H4a2 2 0 0 0-2 2v8c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V6H12l-2-2H4z"/>',
-        'menu-about.svg': '<path fill="currentColor" d="M11 17h2v-6h-2v6zm0-8h2V7h-2v2zm1-7C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>',
+        'menu-data-folder.svg': '<path fill="currentColor" d="M4 6h5.2c.3 0 .58.14.76.37L11.6 8H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path fill="currentColor" d="M14.5 11h5.5L17 8.5l1.4-1.4L23.3 12l-4.9 4.9L17 15.6 20 12.5h-5.5V11z"/>',
+        'menu-about.svg': '<path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4.8a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8zM13.4 17H10.6v-2h.9v-4.2h-.9v-2h2.8V15h.9V17z"/>',
+        'menu-onboarding.svg': '<path fill="currentColor" d="M12 2c-.55 0-1 .45-1 1v2.18a6.01 6.01 0 0 0-4.74 4.97l-.46 3.2a1 1 0 0 0 1.43 1.03l1.92-.86L9 18.68a1 1 0 0 0 1.62.77l1.88-1.52 1.88 1.52A1 1 0 0 0 16 18.7l-.15-4.16 1.92.86a1 1 0 0 0 1.43-1.03l-.46-3.2A6.01 6.01 0 0 0 13 5.18V3c0-.55-.45-1-1-1zm0 6a4 4 0 0 1 3.92 3.3l.07.47-1.1-.5a1 1 0 0 0-1.38.97l.12 3.2-.9-.73a1 1 0 0 0-1.26 0l-.9.73.12-3.2a1 1 0 0 0-1.38-.97l-1.1.5.07-.47A4 4 0 0 1 12 8z"/>',
         'menu-settings.svg#tray': '<path fill="currentColor" d="M20 13h-5v2h-6v-2H4v6h16v-6zm0-8H4a2 2 0 0 0-2 2v8h4v-2h10v2h4V7a2 2 0 0 0-2-2z"/>',
         'menu-view-settings.svg#toggle': '<path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a6.97 6.97 0 0 0-1.63-.94L14.5 2h-5l-.25 2.24a6.97 6.97 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.21 8.16a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.3.64.22l2.39-.96c.5.38 1.05.7 1.63.94L9.5 22h5l.25-2.24c.58-.24 1.13-.56 1.63-.94l2.39.96c.24.08.51 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>'
     };
@@ -324,6 +427,7 @@
         DOM.detailFavoriteBtn = document.getElementById('detail-favorite-btn');
         DOM.detailLevel = document.getElementById('detail-level');
         DOM.detailFaction = document.getElementById('detail-faction');
+        DOM.detailTags = document.getElementById('detail-tags');
         DOM.detailLevelChip = document.getElementById('detail-level-chip');
         DOM.detailFactionChip = document.getElementById('detail-faction-chip');
         DOM.detailStatusChip = document.getElementById('detail-status-chip');
@@ -340,6 +444,20 @@
         DOM.detailGroup = document.getElementById('detail-group');
         DOM.detailCustomName = document.getElementById('detail-custom-name');
         DOM.detailNotes = document.getElementById('detail-notes');
+        DOM.detailNotesTemplates = document.querySelectorAll('[data-notes-template]');
+        DOM.detailDifficultyChip = document.getElementById('detail-difficulty-chip');
+        DOM.btnRefreshIntel = document.getElementById('btn-refresh-intel');
+        DOM.detailIntelSection = document.getElementById('detail-intel-section');
+        DOM.detailIntelStatus = document.getElementById('detail-intel-status');
+        DOM.detailIntelMessage = document.getElementById('detail-intel-message');
+        DOM.detailIntelUpdated = document.getElementById('detail-intel-updated');
+        DOM.detailIntelSource = document.getElementById('detail-intel-source');
+        DOM.detailIntelStr = document.getElementById('detail-intel-str');
+        DOM.detailIntelDef = document.getElementById('detail-intel-def');
+        DOM.detailIntelSpd = document.getElementById('detail-intel-spd');
+        DOM.detailIntelDex = document.getElementById('detail-intel-dex');
+        DOM.detailIntelTotal = document.getElementById('detail-intel-total');
+        DOM.detailIntelFreshness = document.getElementById('detail-intel-freshness');
         DOM.detailHistoryList = document.getElementById('detail-history-list');
 
         // Action buttons
@@ -350,6 +468,12 @@
 
         // Status bar
         DOM.statusConnection = document.getElementById('status-connection');
+        DOM.statusConnectionText = document.getElementById('status-connection-text');
+        DOM.statusConnectionDetail = document.getElementById('status-connection-detail');
+        DOM.statusSignalBadges = document.getElementById('status-signal-badges');
+        DOM.statusNextRefresh = document.getElementById('status-next-refresh');
+        DOM.statusNextRefreshText = document.getElementById('status-next-refresh-text');
+        DOM.statusRefreshMode = document.getElementById('status-refresh-mode-chip');
         DOM.statusRefresh = document.getElementById('status-refresh');
         DOM.refreshText = document.getElementById('refresh-text');
         DOM.progressFill = document.getElementById('progress-fill');
@@ -364,6 +488,35 @@
         DOM.ratePopoverPenaltyRow = document.getElementById('rate-popover-penalty-row');
         DOM.ratePopoverSuccess = document.getElementById('rate-popover-success');
         DOM.ratePopoverFailed = document.getElementById('rate-popover-failed');
+
+        // Command palette
+        DOM.commandPaletteOverlay = document.getElementById('command-palette-overlay');
+        DOM.commandPaletteInput = document.getElementById('command-palette-input');
+        DOM.commandPaletteList = document.getElementById('command-palette-list');
+        DOM.commandPaletteEmpty = document.getElementById('command-palette-empty');
+
+        // Onboarding
+        DOM.onboardingOverlay = document.getElementById('onboarding-overlay');
+        DOM.onboardingTabs = document.querySelectorAll('[data-onboarding-step].onboarding-tab');
+        DOM.onboardingSteps = document.querySelectorAll('.onboarding-step');
+        DOM.onboardingProgressBar = document.getElementById('onboarding-progress-bar');
+        DOM.onboardingPrev = document.getElementById('onboarding-prev');
+        DOM.onboardingNext = document.getElementById('onboarding-next');
+        DOM.onboardingSkip = document.getElementById('onboarding-skip');
+        DOM.onboardingClose = document.getElementById('onboarding-close');
+        DOM.onboardingHideToggle = document.getElementById('onboarding-hide-toggle');
+        DOM.onboardingConnectionStatus = document.getElementById('onboarding-connection-status');
+        DOM.onboardingLatency = document.getElementById('onboarding-latency');
+        DOM.onboardingRate = document.getElementById('onboarding-rate');
+        DOM.onboardingTargetCount = document.getElementById('onboarding-target-count');
+        DOM.onboardingAttackableCount = document.getElementById('onboarding-attackable-count');
+        DOM.onboardingGroupCount = document.getElementById('onboarding-group-count');
+        DOM.onboardingNotifyStatus = document.getElementById('onboarding-notify-status');
+        DOM.onboardingSmartTitle = document.getElementById('onboarding-smart-title');
+        DOM.onboardingSmartCopy = document.getElementById('onboarding-smart-copy');
+        DOM.onboardingStatusKey = document.getElementById('onboarding-status-key');
+        DOM.onboardingStatusTargets = document.getElementById('onboarding-status-targets');
+        DOM.onboardingStatusAlerts = document.getElementById('onboarding-status-alerts');
 
         // Modals
         DOM.modalAddTarget = document.getElementById('modal-add-target');
@@ -381,6 +534,17 @@
         DOM.aboutLastRefresh = document.getElementById('about-last-refresh');
         DOM.aboutOpenLog = document.getElementById('about-open-log');
         DOM.attackPreventionNotifyBtn = document.getElementById('attack-prevention-notify');
+
+        // Connection Dialog
+        DOM.connectionDialog = document.getElementById('connection-dialog');
+        DOM.closeConnectionDialog = document.getElementById('close-connection-dialog');
+        DOM.connTornApi = document.getElementById('conn-torn-api');
+        DOM.connInternet = document.getElementById('conn-internet');
+        DOM.connTornStats = document.getElementById('conn-tornstats');
+        DOM.apiRate = document.getElementById('api-rate');
+        DOM.apiLatency = document.getElementById('api-latency');
+        DOM.netStatus = document.getElementById('net-status');
+        DOM.statsLastFetch = document.getElementById('stats-last-fetch');
 
         // Context menu
         DOM.contextMenu = document.getElementById('context-menu');
@@ -403,6 +567,15 @@
 
         // Loading
         DOM.loadingOverlay = document.getElementById('loading-overlay');
+
+        // Settings
+        DOM.settingPlayerLevel = document.getElementById('setting-player-level');
+        DOM.settingBackupRetention = document.getElementById('setting-backup-retention');
+        DOM.settingBackupPreop = document.getElementById('setting-backup-preop');
+        DOM.settingCloudBackup = document.getElementById('setting-cloud-backup');
+        DOM.settingCloudProvider = document.getElementById('setting-cloud-provider');
+        DOM.btnCloudPath = document.getElementById('btn-cloud-path');
+        DOM.cloudBackupPath = document.getElementById('cloud-backup-path');
     }
 
     // ========================================================================
@@ -846,6 +1019,29 @@
         }
     }
 
+    async function handleChooseCloudPath() {
+        if (!window.electronAPI?.chooseDirectory) {
+            showToast('Folder picker unavailable', 'error');
+            return;
+        }
+        const result = await window.electronAPI.chooseDirectory();
+        if (!result || result.canceled || !result.path) {
+            return;
+        }
+        if (DOM.cloudBackupPath) {
+            DOM.cloudBackupPath.textContent = result.path;
+        }
+        if (DOM.settingCloudBackup) {
+            DOM.settingCloudBackup.checked = true;
+        }
+        syncCloudBackupControls();
+        await window.appState.updateSettings({
+            cloudBackupPath: result.path,
+            cloudBackupEnabled: true
+        });
+        showToast('Cloud backup folder set', 'success');
+    }
+
     async function toggleCompactModeSetting() {
         try {
             const nextValue = !window.appState.settings.compactMode;
@@ -869,14 +1065,38 @@
     async function openDataFolder() {
         try {
             const info = await ensureAppInfo();
-            if (info?.path) {
-                window.electronAPI.openExternal(toFileUrl(info.path));
-            } else {
+            if (!info?.path) {
                 showToast('Data folder not available yet', 'error');
+                return;
+            }
+
+            if (!window.electronAPI.openAppPath) {
+                throw new Error('Missing openAppPath bridge');
+            }
+
+            const result = await window.electronAPI.openAppPath('data');
+            if (result?.success === false) {
+                throw new Error(result.error || 'Failed to open data folder');
             }
         } catch (error) {
             console.error('Failed to open data folder', error);
             showToast('Could not open data folder', 'error');
+        }
+    }
+
+    async function openLogsFolder() {
+        try {
+            if (!window.electronAPI.openAppPath) {
+                throw new Error('Missing openAppPath bridge');
+            }
+
+            const result = await window.electronAPI.openAppPath('logs');
+            if (result?.success === false) {
+                throw new Error(result.error || 'Failed to open logs folder');
+            }
+        } catch (error) {
+            console.error('Failed to open logs folder', error);
+            showToast('Could not open logs folder', 'error');
         }
     }
 
@@ -897,6 +1117,22 @@
                 const view = item.dataset.view;
                 switchView(view);
             });
+        });
+
+        // Connection status dialog
+        DOM.connectionStatus?.addEventListener('click', () => {
+            refreshConnectionIndicators();
+            openConnectionDialog();
+        });
+
+        DOM.closeConnectionDialog?.addEventListener('click', () => {
+            closeConnectionDialog();
+        });
+
+        DOM.connectionDialog?.addEventListener('click', (e) => {
+            if (e.target === DOM.connectionDialog) {
+                closeConnectionDialog();
+            }
         });
 
         // Tray-driven openings
@@ -972,6 +1208,10 @@
         DOM.detailGroup?.addEventListener('change', handleGroupChange);
         DOM.detailMonitorOk?.addEventListener('change', handleMonitorToggle);
         DOM.detailWatchBtn?.addEventListener('click', handleWatchButtonToggle);
+        DOM.btnRefreshIntel?.addEventListener('click', () => refreshSelectedIntel(true));
+        DOM.detailNotesTemplates?.forEach(btn => {
+            btn.addEventListener('click', () => insertNotesTemplate(btn.dataset.notesTemplate || ''));
+        });
 
         // Cancel refresh
         DOM.btnCancelRefresh?.addEventListener('click', () => {
@@ -992,6 +1232,39 @@
                 closeAllModals();
             });
         });
+
+        // Command palette
+        DOM.commandPaletteOverlay?.addEventListener('click', (e) => {
+            if (e.target === DOM.commandPaletteOverlay) {
+                closeCommandPalette();
+            }
+        });
+        DOM.commandPaletteList?.addEventListener('click', (e) => {
+            const item = e.target.closest('.command-item');
+            if (!item) return;
+            commandPaletteState.highlightIndex = parseInt(item.dataset.index, 10) || 0;
+            executeHighlightedCommand();
+        });
+        DOM.commandPaletteInput?.addEventListener('input', (e) => {
+            commandPaletteState.highlightIndex = 0;
+            renderCommandPalette(e.target.value);
+        });
+        DOM.commandPaletteInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                moveCommandHighlight(1);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                moveCommandHighlight(-1);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                executeHighlightedCommand();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeCommandPalette();
+            }
+        });
+        window.addEventListener('keydown', handleGlobalCommandPaletteShortcut);
 
         // Modal overlays (click outside to close)
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
@@ -1072,7 +1345,48 @@
         DOM.activityAbout?.addEventListener('click', () => {
             showAboutModal();
         });
-        DOM.aboutOpenLog?.addEventListener('click', openDataFolder);
+        DOM.aboutOpenLog?.addEventListener('click', openLogsFolder);
+
+        // Onboarding interactions
+        DOM.onboardingTabs?.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const step = parseInt(tab.dataset.onboardingStep || '0', 10);
+                setOnboardingStep(step);
+                updateOnboardingStats();
+            });
+        });
+
+        DOM.onboardingPrev?.addEventListener('click', () => changeOnboardingStep(-1));
+        DOM.onboardingNext?.addEventListener('click', () => {
+            const lastIndex = (DOM.onboardingSteps?.length || 1) - 1;
+            if (onboardingStepIndex >= lastIndex) {
+                if (DOM.onboardingHideToggle?.checked) {
+                    window.appState.updateSettings({ showOnboarding: false });
+                }
+                hideOnboarding();
+            } else {
+                changeOnboardingStep(1);
+            }
+        });
+        DOM.onboardingSkip?.addEventListener('click', hideOnboarding);
+        DOM.onboardingClose?.addEventListener('click', hideOnboarding);
+        DOM.onboardingHideToggle?.addEventListener('change', (e) => {
+            const hide = e.target.checked;
+            window.appState.updateSettings({ showOnboarding: !hide });
+        });
+
+        DOM.onboardingOverlay?.addEventListener('click', (e) => {
+            if (e.target === DOM.onboardingOverlay) {
+                hideOnboarding();
+            }
+        });
+
+        document.querySelectorAll('[data-onboarding-action]')?.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const action = btn.dataset.onboardingAction;
+                handleOnboardingAction(action);
+            });
+        });
 
         // Hide context menus on click elsewhere
         document.addEventListener('click', (event) => {
@@ -1199,7 +1513,10 @@
             ['setting-notify-monitored', 'notifyOnlyMonitored'],
             ['setting-notify-hospital', 'notifyOnHospitalRelease'],
             ['setting-notify-jail', 'notifyOnJailRelease'],
-            ['setting-auto-backup', 'autoBackupEnabled']
+            ['setting-auto-backup', 'autoBackupEnabled'],
+            ['setting-backup-preop', 'backupBeforeBulk'],
+            ['setting-cloud-backup', 'cloudBackupEnabled'],
+            ['setting-show-onboarding', 'showOnboarding']
         ];
 
         settingBindings.forEach(([elementId, settingKey]) => {
@@ -1213,6 +1530,10 @@
                     if (settingKey === 'showStatusCountBadges') {
                         updateFilterCounts();
                     }
+                } else if (settingKey === 'cloudBackupEnabled') {
+                    syncCloudBackupControls();
+                } else if (settingKey === 'showOnboarding') {
+                    syncOnboardingToggle();
                 }
             });
         });
@@ -1246,10 +1567,36 @@
             window.appState.updateSettings({ maxConcurrentRequests: value });
         });
 
+        document.getElementById('setting-api-rate-limit')?.addEventListener('change', (e) => {
+            const fallback = window.appState.settings?.apiRateLimitPerMinute || 80;
+            const value = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || fallback));
+            e.target.value = value;
+            window.appState.limiter?.setLimits?.(value);
+            window.appState.updateSettings({ apiRateLimitPerMinute: value });
+            updateRateText(window.appState.limiter?.getStatus?.());
+        });
+
+        DOM.settingPlayerLevel?.addEventListener('change', (e) => {
+            const value = parseInt(e.target.value, 10);
+            const normalized = Number.isFinite(value) && value > 0 ? value : null;
+            e.target.value = normalized || '';
+            window.appState.updateSettings({ playerLevel: normalized });
+            renderTargetList();
+            const target = window.appState.getSelectedTarget();
+            if (target) {
+                renderTargetDetail(target);
+            }
+        });
+
         document.getElementById('setting-backup-interval')?.addEventListener('change', (e) => {
             const value = Math.max(1, Math.min(30, parseInt(e.target.value) || 7));
             e.target.value = value;
             window.appState.updateSettings({ autoBackupInterval: value });
+        });
+        document.getElementById('setting-backup-retention')?.addEventListener('change', (e) => {
+            const value = Math.max(3, Math.min(50, parseInt(e.target.value) || 10));
+            e.target.value = value;
+            window.appState.updateSettings({ backupRetention: value });
         });
 
         document.getElementById('setting-max-history')?.addEventListener('change', (e) => {
@@ -1257,6 +1604,12 @@
             e.target.value = value;
             window.appState.updateSettings({ maxHistoryEntries: value });
         });
+
+        document.getElementById('setting-cloud-provider')?.addEventListener('change', (e) => {
+            window.appState.updateSettings({ cloudBackupProvider: e.target.value });
+        });
+
+        DOM.btnCloudPath?.addEventListener('click', handleChooseCloudPath);
 
         // Export/Import
         document.getElementById('btn-export')?.addEventListener('click', handleExportTargets);
@@ -1277,6 +1630,8 @@
             loadSettings();
             window.appState.getTargets().forEach(syncReminderWatcher);
             refreshMenubarMenuState();
+            updateOnboardingStats();
+            maybeShowOnboarding();
             window.electronAPI?.setTrayStatus?.({
                 targets: window.appState.getTargets().length,
                 attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
@@ -1288,6 +1643,15 @@
             if (state.limiter && state.limiter.onStatusChange) {
                 state.limiter.onStatusChange = (status) => {
                     updateRateText(status);
+
+                    // Update connection dialog if it's open
+                    if (DOM.connectionDialog?.classList.contains('active')) {
+                        updateConnectionDialogState();
+                    }
+
+                    if (DOM.onboardingOverlay?.classList.contains('visible')) {
+                        updateOnboardingStats();
+                    }
                 };
             }
         });
@@ -1298,6 +1662,14 @@
             updateStatusBar();
             renderGroups();
             refreshMenubarMenuState();
+            if (onboardingWaitCondition?.type === 'targets') {
+                const baseline = onboardingWaitCondition.baseline || 0;
+                const count = window.appState.getTargets().length;
+                if (count > baseline) {
+                    handleOnboardingResume('targets');
+                }
+            }
+            updateOnboardingStats();
             window.electronAPI?.setTrayStatus?.({
                 targets: window.appState.getTargets().length,
                 attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
@@ -1344,15 +1716,22 @@
             }
         });
 
-        state.on('selection-changed', (userId) => {
-            if (userId && state.currentView !== 'targets') {
+        state.on('selection-changed', (selection) => {
+            const primaryId = typeof selection === 'object' ? selection.primaryId : selection;
+            const selectedIds = typeof selection === 'object'
+                ? (selection.selectedIds || [])
+                : (selection ? [selection] : []);
+
+            if (primaryId && state.currentView !== 'targets') {
                 switchView('targets');
             }
-            updateTargetListSelection(userId);
-            if (userId) {
-                const target = state.getTarget(userId);
+            updateTargetListSelection(selectedIds);
+            updateSelectionToolbar(selectedIds);
+            if (primaryId) {
+                const target = state.getTarget(primaryId);
                 if (target) {
                     renderTargetDetail(target);
+                    maybeRefreshIntel(target);
                     DOM.targetDetail.style.display = 'flex';
                     DOM.noSelection.style.display = 'none';
                 }
@@ -1384,12 +1763,18 @@
             DOM.refreshText.textContent = 'Refreshing...';
             DOM.progressFill.style.width = '0%';
             updateRateText(window.appState.limiter.getStatus());
+            updateNextRefreshStatus(window.appState.getStatistics());
             window.electronAPI?.setTrayStatus?.({
                 targets: window.appState.getTargets().length,
                 attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
                 lastRefresh: window.appState.lastRefresh,
                 rateLimitStatus: window.appState.limiter?.getStatus?.()
             });
+
+            // Update connection dialog if it's open
+            if (DOM.connectionDialog?.classList.contains('active')) {
+                updateConnectionDialogState();
+            }
         });
 
         state.on('refresh-progress', (progress) => {
@@ -1426,6 +1811,9 @@
                 DOM.refreshAllBtn?.classList.add('spinning');
                 DOM.refreshText.textContent = `Refreshing ${progress.current}/${progress.total}...`;
                 DOM.progressFill.style.width = `${progress.percent}%`;
+                if (DOM.statusNextRefreshText) {
+                    DOM.statusNextRefreshText.textContent = `Refreshing ${progress.current}/${progress.total}...`;
+                }
             }
 
             updateRateText(window.appState.limiter.getStatus());
@@ -1458,6 +1846,11 @@
             if (state.currentView === 'statistics') {
                 renderStatistics();
             }
+
+            // Update connection dialog if it's open
+            if (DOM.connectionDialog?.classList.contains('active')) {
+                updateConnectionDialogState();
+            }
             window.electronAPI?.setTrayStatus?.({
                 targets: window.appState.getTargets().length,
                 attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
@@ -1481,6 +1874,9 @@
 
         state.on('connection-change', (isOnline) => {
             updateConnectionStatus(isOnline);
+            if (DOM.onboardingOverlay?.classList.contains('visible')) {
+                updateOnboardingStats();
+            }
         });
 
         state.on('error', (message) => {
@@ -1489,10 +1885,13 @@
 
         state.on('settings-changed', () => {
             loadSettings();
+            syncOnboardingToggle();
+            updateOnboardingStats();
             if (state.currentView === 'statistics') {
                 renderStatistics();
             }
             refreshMenubarMenuState();
+            updateStatusBar();
         });
 
         state.on('loading', (isLoading) => {
@@ -1517,7 +1916,14 @@
         });
 
         state.on('selection-changed', () => refreshMenubarMenuState());
-        state.on('view-changed', () => refreshMenubarMenuState());
+        state.on('view-changed', () => {
+            refreshMenubarMenuState();
+            if (onboardingWaitCondition?.type === 'view') {
+                if (window.appState.currentView === onboardingWaitCondition.targetView) {
+                    handleOnboardingResume('view');
+                }
+            }
+        });
 
         state.on('attack-history-changed', () => {
             if (state.currentView === 'history') {
@@ -1725,11 +2131,13 @@
 
     function renderTargetList() {
         const targets = window.appState.getFilteredTargets();
+        const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
         DOM.targetsCount.textContent = `(${targets.length})`;
         activeCountdownTargets.clear();
 
         // Update welcome view with current stats
         updateWelcomeView();
+        updateSelectionToolbar(selectedIds);
 
         if (targets.length === 0) {
             DOM.targetList.innerHTML = `
@@ -1737,6 +2145,7 @@
                     <p>No targets found</p>
                 </div>
             `;
+            updateSelectionToolbar([]);
             return;
         }
 
@@ -1750,11 +2159,11 @@
         DOM.targetList.querySelectorAll('.target-item').forEach(item => {
             const userId = parseInt(item.dataset.userId, 10);
 
-            item.addEventListener('click', () => {
+            item.addEventListener('click', (e) => {
                 if (window.appState.currentView !== 'targets') {
                     switchView('targets');
                 }
-                window.appState.selectTarget(userId);
+                handleTargetItemClick(e, userId);
             });
 
             item.addEventListener('contextmenu', (e) => {
@@ -1764,7 +2173,25 @@
         });
 
         // Update selection
-        updateTargetListSelection(window.appState.selectedTargetId);
+        updateTargetListSelection(selectedIds);
+    }
+
+    function handleTargetItemClick(event, userId) {
+        const state = window.appState;
+        const idsInView = state.getFilteredTargets().map(t => t.userId);
+
+        if (event.shiftKey) {
+            const anchor = state.selectionAnchorId || state.selectedTargetId || idsInView[0] || userId;
+            state.selectRangeBetween(anchor, userId, idsInView);
+            return;
+        }
+
+        if (event.metaKey || event.ctrlKey) {
+            state.selectTarget(userId, { toggle: true, anchorId: state.selectionAnchorId || userId });
+            return;
+        }
+
+        state.selectTarget(userId, { anchorId: userId });
     }
 
     function createTargetListItem(target, timeRemaining = null) {
@@ -1773,9 +2200,16 @@
         const timerValue = timeRemaining ?? target.getFormattedTimeRemaining();
         const group = window.appState.getGroup(target.groupId);
         const hasNoAttackFlag = group && group.noAttack;
-        const selectedClass = window.appState.selectedTargetId === target.userId ? 'selected' : '';
+        const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
+        const selectedClass = selectedIds.includes(target.userId) ? 'selected' : '';
         const flaggedClass = hasNoAttackFlag ? 'in-flagged-group' : '';
         const showAvatars = window.appState.settings.showAvatars !== false;
+        const difficulty = window.appState.getTargetDifficulty
+            ? window.appState.getTargetDifficulty(target)
+            : null;
+        const difficultyBadge = difficulty
+            ? `<span class="difficulty-pill ${difficulty.className || ''}" title="${escapeHtml(difficulty.advice || '')}">${escapeHtml(difficulty.label || 'Difficulty')}</span>`
+            : '';
 
         // Avatar HTML
         const avatarHtml = showAvatars ? `
@@ -1794,6 +2228,7 @@
                     <span class="target-meta">
                         ${target.level ? `Lv.${target.level}` : ''}
                         ${timerValue ? `&#9201; ${timerValue}` : ''}
+                        ${difficultyBadge}
                     </span>
                 </div>
                 ${target.monitorOk ? '<img src="assets/alert.png" class="target-alert-icon" title="Status monitor enabled" alt="Alert" />' : ''}
@@ -1909,8 +2344,8 @@
             item.replaceWith(newElement);
             
             // Re-bind events
-            newElement.addEventListener('click', () => {
-                window.appState.selectTarget(target.userId);
+            newElement.addEventListener('click', (e) => {
+                handleTargetItemClick(e, target.userId);
             });
 
             newElement.addEventListener('contextmenu', (e) => {
@@ -1920,10 +2355,18 @@
         }
     }
 
-    function updateTargetListSelection(userId) {
+    function updateTargetListSelection(selectedIds = null) {
+        const ids = selectedIds ?? (window.appState.getSelectedIds ? window.appState.getSelectedIds() : []);
+        const selectedSet = new Set(ids.map(id => parseInt(id, 10)));
         DOM.targetList.querySelectorAll('.target-item').forEach(item => {
-            item.classList.toggle('selected', parseInt(item.dataset.userId, 10) === userId);
+            const uid = parseInt(item.dataset.userId, 10);
+            item.classList.toggle('selected', selectedSet.has(uid));
         });
+    }
+
+    function updateSelectionToolbar(selectedIds = null) {
+        // Toolbar removed per user preference; keep hook for future UI.
+        return;
     }
 
     // ========================================================================
@@ -1960,6 +2403,7 @@
 
         // Timer - update countdown or hide if expired
         updateDetailTimer(target);
+        renderDifficulty(target);
 
         // Favorite button
         if (DOM.detailFavoriteBtn) {
@@ -1975,6 +2419,14 @@
         if (DOM.detailFaction) DOM.detailFaction.textContent = target.faction || 'None';
         if (DOM.detailFactionChip) {
             DOM.detailFactionChip.textContent = target.faction || 'No faction';
+        }
+        if (DOM.detailTags) {
+            const tags = Array.isArray(target.tags)
+                ? target.tags.map(t => (t || '').trim()).filter(t => t.length)
+                : [];
+            DOM.detailTags.innerHTML = tags.length
+                ? tags.map(tag => `<span class="tag-pill">${escapeHtml(tag)}</span>`).join('')
+                : '<span class="tag-pill">None</span>';
         }
 
         if (DOM.detailUpdatedChip) {
@@ -2014,6 +2466,7 @@
 
         // History
         renderTargetHistory(target);
+        renderTargetIntel(target);
     }
 
     function decorateDetailRows(target) {
@@ -2084,6 +2537,183 @@
         }).join('');
     }
 
+    function renderTargetIntel(target, { loading = false, error = null } = {}) {
+        if (!DOM.detailIntelSection) return;
+
+        const statusEl = DOM.detailIntelStatus;
+        const messageEl = DOM.detailIntelMessage;
+        const updatedEl = DOM.detailIntelUpdated;
+        const sourceEl = DOM.detailIntelSource;
+        const freshnessEl = DOM.detailIntelFreshness;
+
+        const setStat = (el, value) => {
+            if (el) el.textContent = formatIntelValue(value);
+        };
+
+        const clearStats = () => {
+            setStat(DOM.detailIntelStr, '-');
+            setStat(DOM.detailIntelDef, '-');
+            setStat(DOM.detailIntelSpd, '-');
+            setStat(DOM.detailIntelDex, '-');
+            setStat(DOM.detailIntelTotal, '-');
+        };
+
+        const setStateClass = (cls) => {
+            DOM.detailIntelSection.classList.remove('intel-loading', 'intel-error', 'intel-missing', 'intel-ready');
+            if (cls) DOM.detailIntelSection.classList.add(cls);
+        };
+
+        const setStatus = (value) => {
+            if (statusEl) statusEl.textContent = value;
+        };
+
+        const setMessage = (value, allowHtml = false) => {
+            if (!messageEl) return;
+            if (allowHtml) {
+                messageEl.innerHTML = value;
+            } else {
+                messageEl.textContent = value;
+            }
+        };
+
+        if (loading) {
+            setStateClass('intel-loading');
+            clearStats();
+            setStatus('Fetching intelligence...');
+            setMessage('Requesting latest spy data from TornStats.');
+            if (freshnessEl) freshnessEl.textContent = '';
+            return;
+        }
+
+        if (error) {
+            setStateClass('intel-error');
+            clearStats();
+            setStatus('Intel error');
+            setMessage(error);
+            return;
+        }
+
+        if (!target) {
+            setStateClass('intel-missing');
+            clearStats();
+            setStatus('No target selected');
+            setMessage('Select a target to view intelligence.');
+            return;
+        }
+
+        if (!window.tornStatsAPI || !window.tornStatsAPI.apiKey) {
+            setStateClass('intel-missing');
+            clearStats();
+            setStatus('TornStats key required');
+            setMessage('Add your TornStats API key in Settings to enable battle stat estimation.', true);
+            if (updatedEl) updatedEl.textContent = '-';
+            if (sourceEl) sourceEl.textContent = '';
+            if (freshnessEl) freshnessEl.textContent = '';
+            return;
+        }
+
+        const intel = target.intel;
+        if (!intel) {
+            setStateClass('intel-missing');
+            clearStats();
+            setStatus('No intelligence yet');
+            setMessage('Click Refresh Intelligence to pull the latest spy data.');
+            if (updatedEl) updatedEl.textContent = '-';
+            if (sourceEl) sourceEl.textContent = '';
+            if (freshnessEl) freshnessEl.textContent = '';
+            return;
+        }
+
+        if (intel.status === false) {
+            setStateClass('intel-missing');
+            clearStats();
+            setStatus('Intel unavailable');
+            setMessage(intel.message || 'No shared stats found for this target.');
+            if (updatedEl) updatedEl.textContent = intel.fetchedAt ? formatTimestamp(intel.fetchedAt) : '-';
+            if (sourceEl) sourceEl.textContent = 'Source: TornStats';
+            if (freshnessEl) freshnessEl.textContent = intel.fetchedAt ? `Checked ${formatIntelAge(intel.fetchedAt)}` : '';
+            return;
+        }
+
+        setStateClass('intel-ready');
+        setStat(DOM.detailIntelStr, intel.stats?.strength);
+        setStat(DOM.detailIntelDef, intel.stats?.defense);
+        setStat(DOM.detailIntelSpd, intel.stats?.speed);
+        setStat(DOM.detailIntelDex, intel.stats?.dexterity);
+        setStat(DOM.detailIntelTotal, intel.stats?.total);
+
+        const sourceText = intel.type
+            ? `Source: TornStats - ${intel.type}`
+            : 'Source: TornStats';
+        if (sourceEl) sourceEl.textContent = sourceText;
+        setStatus('Intel ready');
+        setMessage(intel.message || 'Latest battle stats from TornStats');
+
+        const lastSeen = intel.lastSeen || intel.fetchedAt || null;
+        if (updatedEl) updatedEl.textContent = lastSeen ? formatTimestamp(lastSeen) : '-';
+        if (freshnessEl) freshnessEl.textContent = intel.fetchedAt ? `Cached ${formatIntelAge(intel.fetchedAt)}` : '';
+    }
+
+    function renderDifficulty(target) {
+        if (!DOM.detailDifficultyChip || !window.appState?.getTargetDifficulty) return;
+        const difficulty = window.appState.getTargetDifficulty(target);
+        const label = difficulty?.label || 'Unknown';
+        const className = difficulty?.className || 'difficulty-unknown';
+        DOM.detailDifficultyChip.textContent = label;
+        DOM.detailDifficultyChip.className = `chip chip-difficulty ${className}`;
+        DOM.detailDifficultyChip.title = difficulty?.ratio
+            ? `Level ratio ${difficulty.ratio}x (You ${difficulty.playerLevel || '?'} vs ${difficulty.targetLevel || '?'})`
+            : (difficulty?.advice || 'Difficulty unavailable');
+    }
+
+    function maybeRefreshIntel(target, { force = false } = {}) {
+        if (!target || !window.appState?.fetchTargetIntel) return;
+        if (!window.tornStatsAPI || !window.tornStatsAPI.apiKey) {
+            renderTargetIntel(target);
+            return;
+        }
+        const intel = target.intel;
+        const isFresh = intel?.fetchedAt && Date.now() - intel.fetchedAt < INTEL_STALE_MS;
+        if (isFresh && !force) return;
+
+        renderTargetIntel(target, { loading: true });
+        window.appState.fetchTargetIntel(target.userId, { force })
+            .then(() => {
+                const updated = window.appState.getTarget(target.userId);
+                renderTargetIntel(updated);
+                renderDifficulty(updated);
+            })
+            .catch(err => {
+                renderTargetIntel(target, { error: err.message });
+            });
+    }
+
+    function refreshSelectedIntel(force = false) {
+        const target = window.appState.getSelectedTarget();
+        if (!target) return;
+        maybeRefreshIntel(target, { force: force || false });
+    }
+
+    function formatIntelValue(value) {
+        if (value === null || value === undefined) return '-';
+        const num = Number(value);
+        if (!Number.isFinite(num)) return '-';
+        return formatNumber(num);
+    }
+
+    function formatIntelAge(timestamp) {
+        if (!timestamp) return '';
+        const diff = Date.now() - timestamp;
+        const seconds = Math.max(0, Math.floor(diff / 1000));
+        if (seconds < 60) return `${seconds}s ago`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 48) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        return `${days}d ago`;
+    }
+
     function updateDetailTimer(target) {
         if (!target) return;
 
@@ -2091,12 +2721,17 @@
         const timeRemainingSeconds = target.getTimeRemaining();
         const formattedTime = target.getFormattedTimeRemaining();
 
+        // Always update status chip to show live countdown
+        updateStatusChip(target);
+
         // Check if timer has expired (0 or less)
         if (timeRemainingSeconds !== null && timeRemainingSeconds <= 0) {
             DOM.detailTimer.style.display = 'none';
 
             // Timer reached zero - mark target as okay locally if they were in hospital/jail
             if (target.isInHospital() || target.isInJail() || target.isInFederal()) {
+                const wasMonitored = target.monitorOk; // Store before updating
+
                 target.statusState = 'Okay';
                 target.statusDesc = 'Okay';
                 target.statusUntil = null;
@@ -2105,6 +2740,11 @@
                 // Update the target in state and save
                 window.appState.targets.set(target.userId, target);
                 window.appState.saveTargets();
+
+                // Trigger notification if "Notify when OK" was enabled
+                if (wasMonitored) {
+                    showToast(`${target.getDisplayName()} is now OK and attackable!`, 'success');
+                }
 
                 // Update the UI to reflect the change
                 window.appState.emit('target-updated', target);
@@ -2124,9 +2764,34 @@
 
     function updateStatusChip(target) {
         if (!DOM.detailStatusChip) return;
-        const statusText = target.statusDesc || target.statusState || 'Unknown';
+
+        // Get time remaining for countdown statuses
+        const timeRemainingSeconds = target.getTimeRemaining();
+        const formattedTime = target.getFormattedTimeRemaining();
+
+        let statusText = target.statusDesc || target.statusState || 'Unknown';
+
+        // If target has a countdown timer, update the status text with live countdown
+        if (timeRemainingSeconds !== null && timeRemainingSeconds > 0 && formattedTime) {
+            const status = target.statusState || '';
+            const statusLower = status.toLowerCase();
+
+            if (statusLower === 'hospital') {
+                statusText = `In hospital for ${formattedTime}`;
+            } else if (statusLower === 'jail' || statusLower === 'jailed') {
+                statusText = `In jail for ${formattedTime}`;
+            } else if (statusLower === 'federal') {
+                statusText = `In federal for ${formattedTime}`;
+            }
+        }
+
         DOM.detailStatusChip.textContent = statusText;
         DOM.detailStatusChip.className = `chip chip-status-chip ${target.getStatusClass()}`;
+
+        // Also update the STATUS row in the detail grid with live countdown
+        if (DOM.detailStatusDesc) {
+            DOM.detailStatusDesc.textContent = statusText;
+        }
     }
 
     function renderTargetAvatar(target) {
@@ -2207,6 +2872,8 @@
 
             reminderTick();
 
+            updateSmartStatusCountdowns();
+
             if (activeCountdownTargets.size === 0) return;
 
             for (const userId of Array.from(activeCountdownTargets)) {
@@ -2227,6 +2894,8 @@
                     // Timer reached zero - mark target as okay locally
                     // This will be corrected on next refresh if status has changed
                     if (t.isInHospital() || t.isInJail() || t.isInFederal()) {
+                        const wasMonitored = t.monitorOk; // Store before updating
+
                         t.statusState = 'Okay';
                         t.statusDesc = 'Okay';
                         t.statusUntil = null;
@@ -2235,6 +2904,11 @@
                         // Update the target in state and save
                         window.appState.targets.set(userId, t);
                         window.appState.saveTargets();
+
+                        // Trigger notification if "Notify when OK" was enabled
+                        if (wasMonitored) {
+                            showToast(`${t.getDisplayName()} is now OK and attackable!`, 'success');
+                        }
 
                         // Update the UI to reflect the change
                         window.appState.emit('target-updated', t);
@@ -2328,9 +3002,14 @@
         selects.forEach(select => {
             if (!select) return;
             const currentValue = select.value;
-            select.innerHTML = groups.map(g => 
+            const options = groups.map(g =>
                 `<option value="${g.id}">${escapeHtml(g.name)}</option>`
             ).join('');
+            if (select === DOM.selectionGroup) {
+                select.innerHTML = `<option value="">Move to group...</option>${options}`;
+            } else {
+                select.innerHTML = options;
+            }
             if (currentValue) select.value = currentValue;
         });
     }
@@ -2377,6 +3056,249 @@
         DOM.attackableText.textContent = `${stats.attackableTargets} attackable`;
         DOM.targetsText.textContent = `${stats.totalTargets} targets`;
         updateRateText(stats.rateLimitStatus);
+        updateNextRefreshStatus(stats);
+        updateConnectionStatus(window.appState.isOnline);
+        updateSmartStatusCountdowns(true);
+    }
+
+    function setStatusTone(element, tone) {
+        if (!element) return;
+        element.classList.remove('status-tone-good', 'status-tone-warn', 'status-tone-bad');
+        const toneColors = {
+            good: '#dff8f0',
+            warn: '#f5f0c2',
+            bad: '#ffd2d2'
+        };
+        if (!tone) {
+            element.style.color = '';
+            return;
+        }
+        element.classList.add(`status-tone-${tone}`);
+        element.style.color = toneColors[tone] || '';
+    }
+
+    function formatSmartCountdown(ms) {
+        if (ms === null || ms === undefined) return '--';
+        if (ms <= 0) return 'now';
+        if (ms < 1000) return '<1s';
+        return formatDuration(ms);
+    }
+
+    function updateNextRefreshStatus(stats) {
+        if (!DOM.statusNextRefreshText) return;
+
+        const settings = window.appState.settings || {};
+        const autoEnabled = !!(settings.autoRefresh && settings.apiKey);
+        const intervalMs = Math.max(10, settings.refreshInterval || stats.refreshInterval || 30) * 1000;
+        const lastRefresh = window.appState.lastRefresh || stats.lastRefresh || null;
+        let tone = autoEnabled ? 'good' : 'warn';
+        let nextAt = null;
+        let text = 'Auto off';
+
+        if (window.appState.isRefreshing) {
+            text = 'Refreshing now...';
+            tone = 'good';
+            nextAt = Date.now() + intervalMs;
+        } else if (!autoEnabled) {
+            text = 'Auto off';
+        } else if (!lastRefresh) {
+            text = 'Waiting for first run';
+            nextAt = Date.now() + intervalMs;
+            tone = 'warn';
+        } else {
+            nextAt = lastRefresh + intervalMs;
+            const remaining = Math.max(0, nextAt - Date.now());
+            text = `Next in ${formatSmartCountdown(remaining)}`;
+            tone = remaining < 15000 ? 'warn' : 'good';
+        }
+
+        smartStatusState.nextRefreshAt = nextAt;
+        smartStatusState.refreshIntervalMs = intervalMs;
+        smartStatusState.autoRefreshEnabled = autoEnabled;
+        smartStatusState.lastRefreshAt = lastRefresh;
+
+        DOM.statusNextRefreshText.textContent = text;
+        if (DOM.statusRefreshMode) {
+            DOM.statusRefreshMode.textContent = autoEnabled ? 'Auto' : 'Manual';
+            DOM.statusRefreshMode.classList.remove('good', 'warn', 'bad');
+            DOM.statusRefreshMode.classList.add(autoEnabled ? 'good' : 'warn');
+        }
+        setStatusTone(DOM.statusNextRefresh, tone);
+    }
+
+    function updateSmartStatusCountdowns(force = false) {
+        if (DOM.statusNextRefreshText && smartStatusState.nextRefreshAt && smartStatusState.autoRefreshEnabled && !window.appState.isRefreshing) {
+            const remaining = smartStatusState.nextRefreshAt - Date.now();
+            DOM.statusNextRefreshText.textContent = `Next in ${formatSmartCountdown(remaining)}`;
+            if (remaining <= 10000) {
+                setStatusTone(DOM.statusNextRefresh, 'bad');
+            } else if (remaining <= 30000) {
+                setStatusTone(DOM.statusNextRefresh, 'warn');
+            } else if (force) {
+                setStatusTone(DOM.statusNextRefresh, 'good');
+            }
+        }
+    }
+
+    // ========================================================================
+    // COMMAND PALETTE (QUICK ACTIONS)
+    // ========================================================================
+
+    function buildCommandList() {
+        const state = window.appState || {};
+        const settings = state.settings || {};
+        const autoOn = !!settings.autoRefresh;
+        const refreshInterval = settings.refreshInterval || 30;
+        const selected = state.getSelectedTarget ? state.getSelectedTarget() : null;
+        const hasTargets = (state.getTargets?.() || []).length > 0;
+
+        const items = [
+            { id: 'add-target', label: 'Add Target', detail: 'Open add target dialog', shortcut: 'Ctrl+N', action: () => openModal('modal-add-target') },
+            { id: 'bulk-add', label: 'Bulk Import Targets', detail: 'Paste IDs or URLs', shortcut: 'Ctrl+Shift+B', action: () => openModal('modal-bulk-add') },
+            { id: 'refresh-all', label: 'Refresh All Targets', detail: 'Force live status update', shortcut: 'Ctrl+R', enabled: () => hasTargets, action: () => window.appState.refreshAllTargets() },
+            { id: 'toggle-auto-refresh', label: autoOn ? 'Disable Auto Refresh' : 'Enable Auto Refresh', detail: `${autoOn ? 'Running' : 'Currently off'} • ${refreshInterval}s interval`, action: () => window.appState.updateSettings({ autoRefresh: !autoOn }) },
+            { id: 'open-settings', label: 'Open Settings', detail: 'Tune preferences', shortcut: 'Ctrl+,', action: () => switchView('settings') },
+            { id: 'view-targets', label: 'View Targets', detail: 'Main list', shortcut: 'Ctrl+1', action: () => switchView('targets') },
+            { id: 'view-history', label: 'View History', detail: 'Recent attacks', shortcut: 'Ctrl+2', action: () => switchView('history') },
+            { id: 'view-statistics', label: 'View Statistics', detail: 'Aggregated metrics', shortcut: 'Ctrl+3', action: () => switchView('statistics') },
+            { id: 'view-loot', label: 'View Loot Timer', detail: 'Loot availability', shortcut: 'Ctrl+4', action: () => switchView('loot-timer') },
+            { id: 'open-connection', label: 'Check Connections', detail: 'Open connection health dialog', action: () => openConnectionDialog() },
+            { id: 'open-about', label: 'About', detail: 'Version, data path', action: () => showAboutModal() },
+            { id: 'open-data-folder', label: 'Open Data Folder', detail: 'Jump to storage location', action: () => window.electronAPI?.openAppPath?.('data') },
+            { id: 'toggle-compact', label: settings.compactMode ? 'Disable Compact Mode' : 'Enable Compact Mode', detail: 'Adjust density', action: () => window.appState.updateSettings({ compactMode: !settings.compactMode }) },
+            selected ? { id: 'attack-selected', label: 'Attack Selected Target', detail: 'Open attack link', shortcut: 'Enter', action: () => handleAttack() } : null,
+            selected ? { id: 'open-profile', label: 'Open Selected Profile', detail: 'View target profile', action: () => handleProfile() } : null,
+            selected ? { id: 'toggle-favorite', label: 'Toggle Favorite', detail: 'Mark selected target', shortcut: 'F', action: () => window.appState.toggleFavorite(selected.userId) } : null,
+            selected ? { id: 'remove-selected', label: 'Remove Selected Target', detail: 'Delete from list', shortcut: 'Del', action: () => handleRemoveTarget() } : null,
+            { id: 'backup-now', label: 'Create Backup', detail: 'Manual backup', action: () => handleCreateBackup() },
+            { id: 'export-targets', label: 'Export Targets', detail: 'Save to file', action: () => handleExportTargets() },
+            { id: 'import-targets', label: 'Import Targets', detail: 'Load from file', action: () => handleImportTargets() },
+            { id: 'launch-onboarding', label: 'Launch Onboarding', detail: 'Guided setup', shortcut: 'F1', action: () => showOnboarding(true) },
+            { id: 'show-command-palette', label: 'Show Command Palette', detail: 'Search quick actions', shortcut: 'Ctrl+Shift+P', action: () => openCommandPalette() }
+        ];
+
+        return items
+            .filter(item => item && (!item.enabled || item.enabled()))
+            .map(item => ({
+                ...item,
+                search: `${item.label} ${item.detail || ''} ${item.keywords || ''}`.toLowerCase()
+            }));
+    }
+
+    function scoreCommand(cmd, words) {
+        if (words.length === 0) return 0;
+        let score = 0;
+        const label = cmd.label.toLowerCase();
+        words.forEach(word => {
+            if (label.startsWith(word)) score += 3;
+            else if (label.includes(word)) score += 2;
+            else if (cmd.search.includes(word)) score += 1;
+        });
+        return score;
+    }
+
+    function renderCommandPalette(query = '') {
+        if (!DOM.commandPaletteList || !DOM.commandPaletteEmpty) return;
+        const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        commandPaletteState.commands = buildCommandList();
+        const currentIndex = commandPaletteState.highlightIndex || 0;
+        const filtered = commandPaletteState.commands
+            .map(cmd => {
+                const matches = words.every(w => cmd.search.includes(w));
+                if (!matches) return null;
+                return { cmd, score: scoreCommand(cmd, words) };
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.score - a.score || a.cmd.label.localeCompare(b.cmd.label))
+            .map(item => item.cmd);
+
+        commandPaletteState.filtered = filtered;
+        commandPaletteState.highlightIndex = Math.min(currentIndex, Math.max(0, filtered.length - 1));
+
+        if (filtered.length === 0) {
+            DOM.commandPaletteList.innerHTML = '';
+            DOM.commandPaletteEmpty.style.display = 'block';
+            return;
+        }
+
+        DOM.commandPaletteEmpty.style.display = 'none';
+        const html = filtered.map((cmd, idx) => `
+            <div class="command-item ${idx === commandPaletteState.highlightIndex ? 'active' : ''}" data-index="${idx}">
+                <div class="command-meta">
+                    <div class="command-title">${escapeHtml(cmd.label)}</div>
+                    ${cmd.detail ? `<div class="command-detail">${escapeHtml(cmd.detail)}</div>` : ''}
+                </div>
+                ${cmd.shortcut ? `<div class="command-shortcut">${escapeHtml(cmd.shortcut)}</div>` : ''}
+            </div>
+        `).join('');
+        DOM.commandPaletteList.innerHTML = html;
+    }
+
+    function openCommandPalette(initialQuery = '') {
+        if (!DOM.commandPaletteOverlay || !DOM.commandPaletteInput) return;
+        DOM.commandPaletteOverlay.classList.add('visible');
+        commandPaletteState.highlightIndex = 0;
+        renderCommandPalette(initialQuery);
+        DOM.commandPaletteInput.value = initialQuery;
+        DOM.commandPaletteInput.focus();
+        if (initialQuery) {
+            DOM.commandPaletteInput.setSelectionRange(initialQuery.length, initialQuery.length);
+        }
+    }
+
+    function closeCommandPalette() {
+        if (!DOM.commandPaletteOverlay || !DOM.commandPaletteInput) return;
+        DOM.commandPaletteOverlay.classList.remove('visible');
+        DOM.commandPaletteInput.value = '';
+    }
+
+    function moveCommandHighlight(delta) {
+        const total = commandPaletteState.filtered.length;
+        if (total === 0) return;
+        commandPaletteState.highlightIndex = (commandPaletteState.highlightIndex + delta + total) % total;
+        renderCommandPalette(DOM.commandPaletteInput?.value || '');
+    }
+
+    function executeHighlightedCommand() {
+        const cmd = commandPaletteState.filtered[commandPaletteState.highlightIndex];
+        if (!cmd) return;
+        closeCommandPalette();
+        try {
+            cmd.action?.();
+        } catch (error) {
+            console.error('Command execution failed', error);
+            showToast?.('Command failed: ' + error.message, 'error');
+        }
+    }
+
+    function handleGlobalCommandPaletteShortcut(event) {
+        const overlayOpen = DOM.commandPaletteOverlay?.classList.contains('visible');
+        const isInput = ['input', 'textarea'].includes((event.target?.tagName || '').toLowerCase()) || event.target?.isContentEditable;
+
+        const openShortcut = (event.key === 'P' && event.shiftKey && (event.ctrlKey || event.metaKey)) || event.key === 'F1';
+        if (openShortcut && !overlayOpen) {
+            event.preventDefault();
+            if (!isInput || event.key === 'F1') {
+                openCommandPalette('');
+            }
+            return;
+        }
+
+        if (overlayOpen) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeCommandPalette();
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                moveCommandHighlight(1);
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                moveCommandHighlight(-1);
+            } else if (event.key === 'Enter') {
+                event.preventDefault();
+                executeHighlightedCommand();
+            }
+        }
     }
 
     function updateRateText(rateStatus) {
@@ -2461,10 +3383,81 @@
         }
     }
 
+    function getConnectionSignals(overrideInternet = null) {
+        const parseOptionalFlag = (key) => {
+            const value = localStorage.getItem(key);
+            if (value === null) return null;
+            return value === 'true';
+        };
+
+        const storedInternet = localStorage.getItem('connection_internet');
+        const internet = overrideInternet !== null && overrideInternet !== undefined
+            ? overrideInternet
+            : (storedInternet === null ? navigator.onLine : storedInternet === 'true');
+
+        return {
+            internet,
+            api: parseOptionalFlag('connection_tornapi'),
+            stats: parseOptionalFlag('connection_tornstats')
+        };
+    }
+
+    function updateSignalBadges(signals) {
+        if (!DOM.statusSignalBadges) return;
+        DOM.statusSignalBadges.querySelectorAll('span').forEach(span => {
+            const key = span.dataset.signal;
+            span.classList.remove('active', 'warn', 'off');
+            const isUp = signals[key];
+            if (isUp === true) {
+                span.classList.add('active');
+            } else if (isUp === null) {
+                span.classList.add('warn');
+            } else if (signals.internet && key !== 'internet') {
+                span.classList.add('warn');
+            } else {
+                span.classList.add('off');
+            }
+        });
+    }
+
     function updateConnectionStatus(isOnline) {
+        if (!DOM.statusConnection) return;
+
         DOM.statusConnection.classList.toggle('offline', !isOnline);
-        const statusText = DOM.statusConnection.querySelector('span');
-        statusText.textContent = isOnline ? 'Connected' : 'Offline';
+        const statusText = DOM.statusConnectionText
+            || DOM.statusConnection.querySelector('.status-value')
+            || DOM.statusConnection.querySelector('span');
+        if (statusText) {
+            statusText.textContent = isOnline ? 'Connected' : 'Offline';
+        }
+
+        const signals = getConnectionSignals(isOnline);
+        if (DOM.statusConnectionDetail) {
+            const labelMap = { internet: 'Net', api: 'API', stats: 'Stats' };
+            const down = Object.entries(signals)
+                .filter(([, up]) => up === false)
+                .map(([key]) => labelMap[key] || key);
+            const unknown = Object.entries(signals)
+                .filter(([, up]) => up === null)
+                .map(([key]) => labelMap[key] || key);
+
+            if (unknown.length === Object.keys(signals).length) {
+                DOM.statusConnectionDetail.textContent = 'Checking...';
+            } else if (down.length === 0 && unknown.length === 0) {
+                DOM.statusConnectionDetail.textContent = 'Net • API • Stats locked';
+            } else {
+                const segments = [];
+                if (down.length) segments.push(`${down.join(' / ')} down`);
+                if (unknown.length) segments.push(`${unknown.join(' / ')} pending`);
+                DOM.statusConnectionDetail.textContent = segments.join(' • ');
+            }
+        }
+        updateSignalBadges(signals);
+
+        // Update connection dialog if it's open
+        if (DOM.connectionDialog?.classList.contains('active')) {
+            updateConnectionDialogState();
+        }
     }
 
     // ========================================================================
@@ -2941,9 +3934,16 @@
 
         const days = 14;
         const now = new Date();
+        const startOfRange = new Date(now);
+        startOfRange.setDate(now.getDate() - (days - 1));
+        startOfRange.setHours(0, 0, 0, 0);
+        const startTs = startOfRange.getTime();
+        const endTs = now.getTime();
+
         const validHistory = safeHistoryArray(history).filter(record => {
-            const ts = new Date(record.timestamp);
-            return !Number.isNaN(ts.getTime()) && (!record.type || record.type === 'attack');
+            const ts = new Date(record.timestamp).getTime();
+            if (Number.isNaN(ts)) return false;
+            return ts >= startTs && ts <= endTs && (!record.type || record.type === 'attack');
         });
         const buckets = Array.from({ length: days }, (_, i) => {
             const day = new Date(now);
@@ -2971,10 +3971,12 @@
         });
 
         const maxCount = Math.max(...buckets.map(b => b.count), 1);
-        const totalAttacks = validHistory.length;
+        const totalAttacks = buckets.reduce((sum, b) => sum + b.count, 0);
         const avgAttacks = totalAttacks > 0 ? (totalAttacks / days).toFixed(1) : 0;
+        const peakBucket = buckets.reduce((peak, b) => (b.count > peak.count ? b : peak), { count: -1 });
+        const peakLabel = peakBucket.count > 0 ? `${peakBucket.count} on ${peakBucket.dayOfWeek}` : null;
         note.textContent = totalAttacks > 0
-            ? `${totalAttacks} total attacks / ${avgAttacks} avg/day`
+            ? `${totalAttacks} attacks past ${days}d - ${avgAttacks}/day avg${peakLabel ? ` - peak ${peakLabel}` : ''}`
             : 'No attacks recorded yet';
 
         if (totalAttacks === 0) {
@@ -2989,16 +3991,21 @@
             return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)), count: b.count, isToday: b.isToday };
         });
 
-        const linePath = points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-        const areaPath = `M 0 100 ${linePath} L 100 100 Z`;
-
         const barsHtml = buckets.map(b => {
-            const height = (b.count / maxCount) * 100;
-            const barClass = b.isToday ? 'bar today' : 'bar';
+            const ratio = maxCount === 0 ? 0 : (b.count / maxCount);
+            const maxBarHeight = 135; // px
+            const minBarHeight = b.count > 0 ? 12 : 3; // px
+            const heightPx = minBarHeight + ratio * (maxBarHeight - minBarHeight);
+            const barClass = [
+                'bar',
+                b.count > 0 ? 'has-count' : 'zero',
+                b.isToday ? 'today' : '',
+                b.count === peakBucket.count && b.count > 0 ? 'peak' : ''
+            ].filter(Boolean).join(' ');
             return `
                 <div class="bar-column ${b.count > 0 ? 'has-data' : ''}" title="${b.dateLabel}: ${b.count} attacks">
                     <div class="bar-value">${b.count > 0 ? b.count : ''}</div>
-                    <div class="${barClass}" style="height:${Math.max(height, 4)}%;"></div>
+                    <div class="${barClass}" style="height:${heightPx.toFixed(1)}px;"></div>
                     <span class="bar-day">${b.dayOfWeek}</span>
                     <span class="bar-date">
                         <span class="bar-date-day">${b.dayNumber}</span>
@@ -3012,17 +4019,6 @@
             <div class="bar-chart-grid">
                 ${barsHtml}
             </div>
-            <svg class="trend-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                <defs>
-                    <linearGradient id="attackTrendArea" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stop-color="var(--vscode-accent-blue)" stop-opacity="0.25" />
-                        <stop offset="100%" stop-color="var(--vscode-accent-blue)" stop-opacity="0" />
-                    </linearGradient>
-                </defs>
-                <path class="trend-area" d="${areaPath}"></path>
-                <path class="trend-line" d="${linePath}"></path>
-                ${points.map(p => `<circle class="trend-dot ${p.isToday ? 'today' : ''}" cx="${p.x}" cy="${p.y}" r="${p.count > 0 ? 1.6 : 1.1}"></circle>`).join('')}
-            </svg>
         `;
     }
 
@@ -3031,24 +4027,36 @@
         const note = document.getElementById('group-distribution-note');
         if (!container) return;
 
-        const filtered = distribution.filter(d => d.count > 0).sort((a, b) => b.count - a.count);
-        const total = filtered.reduce((sum, g) => sum + g.count, 0);
-        const groupCount = filtered.length || distribution.length;
+        const sanitized = (distribution || []).map(d => ({
+            ...d,
+            count: Math.max(Number(d.count) || 0, 0),
+            name: d.name || 'Group',
+            color: d.color || 'var(--vscode-accent-blue)'
+        }));
+        const sorted = sanitized.slice().sort((a, b) => b.count - a.count);
+        const total = sanitized.reduce((sum, g) => sum + g.count, 0);
+        const groupCount = sanitized.length;
+
         note.textContent = total
             ? `${total} targets / ${groupCount} ${groupCount === 1 ? 'group' : 'groups'}`
-            : 'No grouped targets yet';
+            : (groupCount ? `${groupCount} ${groupCount === 1 ? 'group' : 'groups'} - no targets yet` : 'No groups yet');
 
         if (!total) {
             container.innerHTML = '<div class="bar-empty">Create groups to organize your targets</div>';
             return;
         }
 
-        container.innerHTML = filtered.map((g, index) => {
-            const percentage = ((g.count / total) * 100).toFixed(1);
-            const barWidth = (g.count / total) * 100;
-            const isLargest = index === 0;
+        const largestCount = sorted.length > 0 ? sorted[0].count : 0;
+
+        container.innerHTML = sorted.map((g, index) => {
+            const percentage = total > 0 ? ((g.count / total) * 100).toFixed(1) : '0.0';
+            const barWidth = total > 0 ? (g.count / total) * 100 : 0;
+            const isLargest = g.count === largestCount && g.count > 0 && index === 0;
+            const isEmpty = g.count === 0;
             return `
-                <div class="group-bar-row ${isLargest ? 'largest' : ''}" style="--fill:${barWidth}%; --fill-color:${g.color || 'var(--vscode-accent-blue)'};" title="${escapeHtml(g.name)}: ${g.count} targets (${percentage}%)">
+                <div class="group-bar-row ${isLargest ? 'largest' : ''} ${isEmpty ? 'empty' : ''}"
+                    style="--fill:${barWidth}%; --fill-color:${g.color};"
+                    title="${escapeHtml(g.name)}: ${g.count} targets (${percentage}%)">
                     <div class="group-bar-label-container">
                         <span class="group-color-indicator"></span>
                         <span class="group-bar-label">${escapeHtml(g.name)}</span>
@@ -3799,17 +4807,35 @@
         renderTargetList();
     }
 
+    function syncCloudBackupControls() {
+        const enabled = DOM.settingCloudBackup?.checked;
+        if (DOM.settingCloudProvider) {
+            DOM.settingCloudProvider.disabled = !enabled;
+        }
+        if (DOM.btnCloudPath) {
+            DOM.btnCloudPath.disabled = !enabled;
+        }
+        if (DOM.cloudBackupPath) {
+            DOM.cloudBackupPath.classList.toggle('muted', !enabled);
+        }
+    }
+
     function loadSettings() {
         const settings = window.appState.settings;
 
         // API Configuration
         document.getElementById('setting-api-key').value = settings.apiKey || '';
         document.getElementById('setting-tornstats-key').value = settings.tornStatsApiKey || '';
+        const playerLevelInput = document.getElementById('setting-player-level');
+        if (playerLevelInput) {
+            playerLevelInput.value = settings.playerLevel || '';
+        }
 
         // Refresh Settings
         document.getElementById('setting-auto-refresh').checked = settings.autoRefresh;
         document.getElementById('setting-refresh-interval').value = settings.refreshInterval;
         document.getElementById('setting-concurrent').value = settings.maxConcurrentRequests;
+        document.getElementById('setting-api-rate-limit').value = settings.apiRateLimitPerMinute || window.appState.limiter?.maxTokens || 80;
 
         // Notifications
         document.getElementById('setting-notifications').checked = settings.notifications;
@@ -3832,6 +4858,7 @@
         document.getElementById('setting-confirm-attack').checked = settings.confirmBeforeAttack;
         document.getElementById('setting-confirm-delete').checked = settings.confirmBeforeDelete !== false;
         document.getElementById('setting-attack-sound').checked = settings.playAttackSound || false;
+        document.getElementById('setting-show-onboarding').checked = settings.showOnboarding !== false;
 
         // Window & Tray
         document.getElementById('setting-minimize-tray').checked = settings.minimizeToTray;
@@ -3840,7 +4867,13 @@
         // Data Management
         document.getElementById('setting-auto-backup').checked = settings.autoBackupEnabled || false;
         document.getElementById('setting-backup-interval').value = settings.autoBackupInterval || 7;
+        document.getElementById('setting-backup-retention').value = settings.backupRetention || 10;
+        document.getElementById('setting-backup-preop').checked = settings.backupBeforeBulk !== false;
+        document.getElementById('setting-cloud-backup').checked = settings.cloudBackupEnabled || false;
+        document.getElementById('setting-cloud-provider').value = settings.cloudBackupProvider || 'google-drive';
+        document.getElementById('cloud-backup-path').textContent = settings.cloudBackupPath || 'No folder selected';
         document.getElementById('setting-max-history').value = settings.maxHistoryEntries || 1000;
+        syncCloudBackupControls();
 
         document.body.classList.toggle('compact-mode', settings.compactMode);
 
@@ -3865,6 +4898,10 @@
                 DOM.aboutDataPath.textContent = info.path || '-';
             }
         });
+
+        if (DOM.onboardingHideToggle) {
+            DOM.onboardingHideToggle.checked = settings.showOnboarding === false;
+        }
     }
 
     async function handleValidateKey() {
@@ -3882,9 +4919,18 @@
         const result = await window.appState.validateApiKey(key);
 
         if (result.valid) {
-            status.innerHTML = `<span class="status-success">Valid key for ${result.user.name} [${result.user.id}]</span>`;
-            await window.appState.updateSettings({ apiKey: key });
+            status.innerHTML = `<span class="status-success">Valid key for ${result.user.name} [${result.user.id}] (Lv.${result.user.level})</span>`;
+            await window.appState.updateSettings({
+                apiKey: key,
+                playerLevel: result.user.level,
+                playerName: result.user.name,
+                playerId: result.user.id
+            });
+            if (DOM.settingPlayerLevel) {
+                DOM.settingPlayerLevel.value = result.user.level || '';
+            }
             showToast('API key saved successfully', 'success');
+            handleOnboardingResume('api');
         } else {
             status.innerHTML = `<span class="status-error">${result.error}</span>`;
         }
@@ -4054,6 +5100,86 @@
         }
     }
 
+    function handleBulkRemoveTargets() {
+        const ids = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
+        if (!ids.length) {
+            showToast('Select targets to remove', 'info');
+            return;
+        }
+
+        const message = ids.length === 1
+            ? 'Remove the selected target?'
+            : `Remove ${ids.length} targets? A backup will be created before deleting.`;
+
+        showConfirm(
+            ids.length === 1 ? 'Remove Target' : 'Remove Targets',
+            message,
+            async () => {
+                await window.appState.removeTargets(ids);
+                window.appState.clearSelection();
+                updateSelectionToolbar([]);
+                showToast('Targets removed', 'success');
+                renderTargetList();
+            }
+        );
+    }
+
+    async function handleBulkAddTags(targetIds = null) {
+        const ids = targetIds && targetIds.length
+            ? targetIds
+            : (window.appState.getSelectedIds ? window.appState.getSelectedIds() : []);
+        if (!ids.length) {
+            showToast('Select targets first', 'info');
+            return;
+        }
+
+        // Pre-fill prompt with existing tags when a single target is selected
+        let defaultTags = '';
+        if (ids.length === 1) {
+            const t = window.appState.getTarget(ids[0]);
+            if (t && Array.isArray(t.tags) && t.tags.length) {
+                defaultTags = t.tags.join(', ');
+            }
+        }
+
+        const input = window.prompt('Add tags (comma separated):', defaultTags);
+        if (input === null) return;
+        const tags = input.split(',').map(t => t.trim()).filter(Boolean);
+        if (!tags.length) {
+            showToast('No tags entered', 'info');
+            return;
+        }
+
+        const result = await window.appState.addTagsToTargets(ids, tags);
+        if (!result?.success) {
+            showToast(result?.error || 'Unable to add tags', 'error');
+            return;
+        }
+
+        const tagList = result.tags.join(', ');
+        showToast(`Added ${tagList} to ${result.count} target${result.count === 1 ? '' : 's'}`, 'success');
+        const selected = window.appState.getSelectedTarget();
+        if (selected) {
+            renderTargetDetail(selected);
+            if (DOM.detailTags) {
+                DOM.detailTags.classList.add('tag-highlight');
+                setTimeout(() => DOM.detailTags && DOM.detailTags.classList.remove('tag-highlight'), 900);
+            }
+        }
+        renderTargetList();
+        updateTargetListSelection(ids);
+    }
+
+    function handleSelectAllTargets() {
+        const targets = window.appState.getFilteredTargets();
+        if (!targets.length) {
+            showToast('No targets to select', 'info');
+            return;
+        }
+        window.appState.selectAll(targets.map(t => t.userId));
+        updateSelectionToolbar(targets.map(t => t.userId));
+    }
+
     function handleToggleFavorite() {
         const target = window.appState.getSelectedTarget();
         if (target) {
@@ -4073,6 +5199,18 @@
         if (target) {
             window.appState.updateTarget(target.userId, { notes: e.target.value });
         }
+    }
+
+    function insertNotesTemplate(templateKey) {
+        const template = NOTES_TEMPLATES[templateKey] || NOTES_TEMPLATES.stealth;
+        const target = window.appState.getSelectedTarget();
+        if (!target || !DOM.detailNotes) return;
+
+        const existing = DOM.detailNotes.value.trim();
+        const combined = existing ? `${existing}\n\n${template}` : template;
+        DOM.detailNotes.value = combined;
+        handleNotesChange({ target: { value: combined } });
+        showToast('Template added to notes', 'success');
     }
 
     async function handleGroupChange(e) {
@@ -4386,6 +5524,21 @@
         }
     }
 
+    function getActionTargetIds(contextId) {
+        const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
+        const cid = parseInt(contextId, 10);
+        if (selectedIds.length > 1) {
+            if (selectedIds.includes(cid)) {
+                return selectedIds;
+            }
+            return [cid];
+        }
+        if (selectedIds.length === 1) {
+            return selectedIds;
+        }
+        return Number.isFinite(cid) ? [cid] : [];
+    }
+
     function hideContextMenu() {
         DOM.contextMenu.classList.remove('visible');
         resetContextSubmenuState();
@@ -4450,22 +5603,21 @@
     }
 
     async function handleMoveToGroup(userId, groupId) {
-        const target = window.appState.getTarget(userId);
-        if (!target) return;
+        const ids = getActionTargetIds(userId);
+        if (!ids.length) return;
 
         const group = window.appState.getGroup(groupId);
-        if (!group) return;
-
-        // Don't update if already in this group
-        if (target.groupId === groupId) {
+        if (!group) {
+            showToast('Group not found', 'error');
             return;
         }
 
-        const result = await window.appState.moveTargetToGroup(userId, groupId);
+        const result = await window.appState.bulkMoveTargets(ids, groupId);
         if (result?.success) {
-            showToast(`Moved to ${group.name}`, 'success');
+            showToast(`Moved ${result.moved || ids.length} target${ids.length === 1 ? '' : 's'} to ${group.name}`, 'success');
+            renderTargetList();
         } else {
-            showToast(result?.error || 'Could not move target to group', 'error');
+            showToast(result?.error || 'Could not move targets', 'error');
         }
     }
 
@@ -4499,6 +5651,20 @@
             case 'refresh':
                 window.appState.refreshTarget(userId);
                 break;
+            case 'select-all': {
+                handleSelectAllTargets();
+                break;
+            }
+            case 'clear-selection': {
+                window.appState.clearSelection();
+                updateTargetListSelection([]);
+                break;
+            }
+            case 'add-tags': {
+                const ids = getActionTargetIds(userId);
+                handleBulkAddTags(ids);
+                break;
+            }
             case 'remove-from-group':
                 const targetForGroup = window.appState.getTarget(userId);
                 if (targetForGroup && targetForGroup.groupId !== 'default') {
@@ -4519,7 +5685,22 @@
                     showToast('Target is already in the default group', 'info');
                 }
                 break;
-            case 'remove':
+            case 'remove': {
+                const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
+                const isMulti = selectedIds.length > 1 && selectedIds.includes(userId);
+                if (isMulti) {
+                    showConfirm(
+                        'Remove Targets',
+                        `Remove ${selectedIds.length} selected targets? A backup will be created first.`,
+                        async () => {
+                            await window.appState.removeTargets(selectedIds);
+                            window.appState.clearSelection();
+                            renderTargetList();
+                            showToast('Targets removed', 'success');
+                        }
+                    );
+                    break;
+                }
                 const target = window.appState.getTarget(userId);
                 showConfirm(
                     'Remove Target',
@@ -4530,6 +5711,7 @@
                     }
                 );
                 break;
+            }
         }
     }
 
@@ -4799,6 +5981,21 @@
         const ctrlOrMeta = e.ctrlKey || e.metaKey;
         const key = (e.key || '').toLowerCase();
 
+        if (DOM.onboardingOverlay?.classList.contains('visible')) {
+            if (key === 'escape') {
+                hideOnboarding();
+                return;
+            }
+            if (key === 'arrowright') {
+                changeOnboardingStep(1);
+                return;
+            }
+            if (key === 'arrowleft') {
+                changeOnboardingStep(-1);
+                return;
+            }
+        }
+
         // Ignore if typing in input
         if (e.target.matches('input, textarea, select')) {
             if (e.key === 'Escape') {
@@ -4873,12 +6070,19 @@
                     e.preventDefault();
                     switchView('statistics');
                     break;
+                case 'a':
+                    if (window.appState.currentView === 'targets') {
+                        e.preventDefault();
+                        handleSelectAllTargets();
+                    }
+                    break;
             }
             return;
         }
 
         // Target-specific shortcuts
         const selected = window.appState.getSelectedTarget();
+        const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
 
         switch (e.key) {
             case 'Enter':
@@ -4888,7 +6092,9 @@
                 break;
             case 'Delete':
             case 'Backspace':
-                if (selected) {
+                if (selectedIds.length > 1) {
+                    handleBulkRemoveTargets();
+                } else if (selected) {
                     handleRemoveTarget();
                 }
                 break;
@@ -4924,10 +6130,11 @@
             if (newIndex >= targets.length) newIndex = 0;
         }
 
-        window.appState.selectTarget(targets[newIndex].userId);
+        const nextId = targets[newIndex].userId;
+        window.appState.selectTarget(nextId, { anchorId: nextId });
 
         // Scroll into view
-        const item = DOM.targetList.querySelector(`[data-user-id="${targets[newIndex].userId}"]`);
+        const item = DOM.targetList.querySelector(`[data-user-id="${nextId}"]`);
         item?.scrollIntoView({ block: 'nearest' });
     }
 
@@ -5018,6 +6225,308 @@
         document.querySelectorAll('.modal-overlay').forEach(modal => {
             modal.classList.remove('visible');
         });
+    }
+
+    // ========================================================================
+    // CONNECTION DIALOG
+    // ========================================================================
+
+    async function refreshConnectionIndicators() {
+        if (connectionCheckInProgress) {
+            return;
+        }
+
+        if (!window.electronAPI?.checkInternetConnection) {
+            return;
+        }
+
+        connectionCheckInProgress = true;
+
+        const setConnectionFlag = (key, value) => {
+            localStorage.setItem(key, value ? 'true' : 'false');
+        };
+
+        try {
+            const [internetResult, tornApiResult, tornStatsResult] = await Promise.allSettled([
+                window.electronAPI.checkInternetConnection(),
+                window.electronAPI.checkTornApiConnection?.(),
+                window.electronAPI.checkTornStatsConnection?.()
+            ]);
+
+            setConnectionFlag('connection_internet',
+                internetResult.status === 'fulfilled' && !!internetResult.value?.connected);
+            setConnectionFlag('connection_tornapi',
+                tornApiResult.status === 'fulfilled' && !!tornApiResult.value?.connected);
+            setConnectionFlag('connection_tornstats',
+                tornStatsResult.status === 'fulfilled' && !!tornStatsResult.value?.connected);
+        } catch (error) {
+            console.error('Failed to refresh connection indicators', error);
+            setConnectionFlag('connection_internet', false);
+            setConnectionFlag('connection_tornapi', false);
+            setConnectionFlag('connection_tornstats', false);
+        } finally {
+            connectionCheckInProgress = false;
+            updateWifiIcon();
+        }
+    }
+
+    async function openConnectionDialog() {
+        // Open the new Electron connection window
+        if (window.electronAPI && window.electronAPI.openConnectionDialog) {
+            try {
+                await window.electronAPI.openConnectionDialog();
+            } catch (error) {
+                console.error('Failed to open connection dialog:', error);
+                // Fallback to built-in dialog if Electron API fails
+                if (DOM.connectionDialog) {
+                    DOM.connectionDialog.classList.add('active');
+                    updateConnectionDialogState();
+                }
+            }
+        } else {
+            // Fallback for browser testing
+            if (DOM.connectionDialog) {
+                DOM.connectionDialog.classList.add('active');
+                updateConnectionDialogState();
+            }
+        }
+    }
+
+    function closeConnectionDialog() {
+        if (DOM.connectionDialog) {
+            DOM.connectionDialog.classList.remove('active');
+        }
+    }
+
+    /**
+     * Update WiFi icon curves based on connection status
+     * Curve 1 (bottom) = Internet
+     * Curve 2 (middle) = Torn API
+     * Curve 3 (top) = TornStats
+     */
+    function updateWifiIcon() {
+        const wifiIcons = document.querySelectorAll('.wifi-icon');
+
+        if (wifiIcons.length === 0) {
+            console.warn('[WiFi Icon] No WiFi icons found');
+            return;
+        }
+
+        // Helper function to update gradient colors
+        function setGradientColors(icon, gradientNum, isActive) {
+            const gradStartClass = `.grad-start-${gradientNum}`;
+            const gradEndClass = `.grad-end-${gradientNum}`;
+
+            const startStop = icon.querySelector(gradStartClass);
+            const endStop = icon.querySelector(gradEndClass);
+
+            if (startStop && endStop) {
+                if (isActive) {
+                    // Active: bright green gradient
+                    startStop.setAttribute('stop-color', '#5ee6c4');
+                    endStop.setAttribute('stop-color', '#4ecbb0');
+                } else {
+                    // Inactive: dim gray
+                    startStop.setAttribute('stop-color', '#2a2e35');
+                    endStop.setAttribute('stop-color', '#1f2228');
+                }
+            }
+        }
+
+        // Read connection states from localStorage (set by connection dialog)
+        const internetConnected = localStorage.getItem('connection_internet') === 'true';
+        const tornApiConnected = localStorage.getItem('connection_tornapi') === 'true';
+        const tornStatsConnected = localStorage.getItem('connection_tornstats') === 'true';
+
+        wifiIcons.forEach((icon, index) => {
+            const curve1 = icon.querySelector('.wifi-curve-1'); // Internet
+            const curve2 = icon.querySelector('.wifi-curve-2'); // Torn API
+            const curve3 = icon.querySelector('.wifi-curve-3'); // TornStats
+
+            // Update Internet connection (curve 1 - bottom)
+            if (curve1) {
+                if (internetConnected) {
+                    curve1.classList.add('active');
+                    curve1.classList.remove('error');
+                    setGradientColors(icon, 1, true);
+                } else {
+                    curve1.classList.remove('active');
+                    curve1.classList.add('error');
+                    setGradientColors(icon, 1, false);
+                }
+            }
+
+            // Update Torn API connection (curve 2 - middle)
+            if (curve2) {
+                if (tornApiConnected) {
+                    curve2.classList.add('active');
+                    curve2.classList.remove('error');
+                    setGradientColors(icon, 2, true);
+                } else {
+                    curve2.classList.remove('active');
+                    curve2.classList.add('error');
+                    setGradientColors(icon, 2, false);
+                }
+            }
+
+            // Update TornStats connection (curve 3 - top)
+            if (curve3) {
+                if (tornStatsConnected) {
+                    curve3.classList.add('active');
+                    curve3.classList.remove('error');
+                    setGradientColors(icon, 3, true);
+                } else {
+                    curve3.classList.remove('active');
+                    curve3.classList.remove('error');
+                    setGradientColors(icon, 3, false);
+                }
+            }
+        });
+
+        // Log update for debugging
+        console.log('[WiFi Icon] Updated', {
+            internet: internetConnected,
+            tornAPI: tornApiConnected,
+            tornStats: tornStatsConnected
+        });
+    }
+
+    function updateConnectionDialogState() {
+        // Update WiFi icon
+        updateWifiIcon();
+
+        // Update Torn API connection
+        const tornApi = window.tornAPI;
+        const appState = window.appState;
+
+        if (tornApi) {
+            const hasApiKey = tornApi.hasApiKey();
+            const hasSuccessfulRequest = tornApi.lastSuccessfulRequest !== null;
+            const hasTargets = appState?.getTargets?.()?.length > 0;
+
+            // Consider API connected if it has a key and either:
+            // 1. Has made successful requests, OR
+            // 2. Is marked as online, OR
+            // 3. Has loaded targets (which requires API access)
+            const apiConnected = hasApiKey && (hasSuccessfulRequest || tornApi.isOnline || hasTargets);
+            const isRefreshing = appState?.isRefreshing || false;
+            const apiItem = DOM.connTornApi;
+
+            if (apiItem) {
+                apiItem.classList.remove('connected', 'disconnected', 'checking');
+
+                if (!hasApiKey) {
+                    apiItem.classList.add('disconnected');
+                    const statusText = apiItem.querySelector('.connection-status');
+                    if (statusText) {
+                        statusText.textContent = 'No API Key';
+                    }
+                } else if (isRefreshing) {
+                    apiItem.classList.add('checking');
+                    const statusText = apiItem.querySelector('.connection-status');
+                    if (statusText) {
+                        statusText.textContent = 'Refreshing...';
+                    }
+                } else {
+                    apiItem.classList.add(apiConnected ? 'connected' : 'disconnected');
+                    const statusText = apiItem.querySelector('.connection-status');
+                    if (statusText) {
+                        if (apiConnected) {
+                            const lastRequest = tornApi.lastSuccessfulRequest;
+                            if (lastRequest) {
+                                statusText.textContent = `Connected (${formatTimestamp(lastRequest)})`;
+                            } else {
+                                statusText.textContent = 'Connected';
+                            }
+                        } else {
+                            statusText.textContent = 'Ready';
+                        }
+                    }
+                }
+            }
+
+            // Update API rate
+            if (DOM.apiRate) {
+                const rateValue = DOM.apiRate.querySelector('.detail-value');
+                if (rateValue && tornApi.limiter) {
+                    const status = tornApi.limiter.getStatus();
+                    if (status) {
+                        const available = status.availableTokens || 0;
+                        const max = status.maxTokens || 100;
+                        rateValue.textContent = `${available}/${max}`;
+                    } else {
+                        rateValue.textContent = '--/min';
+                    }
+                } else {
+                    rateValue.textContent = '--/min';
+                }
+            }
+
+            // Update API latency
+            if (DOM.apiLatency) {
+                const latencyValue = DOM.apiLatency.querySelector('.detail-value');
+                if (latencyValue) {
+                    const lastDuration = tornApi.lastRequestDuration || 0;
+                    if (lastDuration > 0) {
+                        latencyValue.textContent = `${lastDuration} ms`;
+                    } else if (!hasApiKey) {
+                        latencyValue.textContent = 'No API Key';
+                    } else {
+                        latencyValue.textContent = '-- ms';
+                    }
+                }
+            }
+        }
+
+        // Update Internet connection
+        const internetConnected = window.appState?.isOnline ?? navigator.onLine;
+        const internetItem = DOM.connInternet;
+
+        if (internetItem) {
+            internetItem.classList.remove('connected', 'disconnected', 'checking');
+            internetItem.classList.add(internetConnected ? 'connected' : 'disconnected');
+
+            const statusText = internetItem.querySelector('.connection-status');
+            if (statusText) {
+                statusText.textContent = internetConnected ? 'Connected' : 'Disconnected';
+            }
+        }
+
+        // Update network status detail
+        if (DOM.netStatus) {
+            const netValue = DOM.netStatus.querySelector('.detail-value');
+            if (netValue) {
+                netValue.textContent = internetConnected ? 'Online' : 'Offline';
+            }
+        }
+
+        // Update TornStats API connection
+        const statsItem = DOM.connTornStats;
+        if (statsItem) {
+            // Check if we have recent TornStats data
+            const hasStatsData = window.appState?.lootData?.size > 0;
+
+            statsItem.classList.remove('connected', 'disconnected', 'checking');
+            statsItem.classList.add(hasStatsData ? 'connected' : 'disconnected');
+
+            const statusText = statsItem.querySelector('.connection-status');
+            if (statusText) {
+                statusText.textContent = hasStatsData ? 'Connected' : 'Not Active';
+            }
+        }
+
+        // Update TornStats last fetch
+        if (DOM.statsLastFetch) {
+            const fetchValue = DOM.statsLastFetch.querySelector('.detail-value');
+            if (fetchValue) {
+                const lastFetch = window.appState?.lastLootFetch;
+                if (lastFetch) {
+                    fetchValue.textContent = formatTimestamp(lastFetch);
+                } else {
+                    fetchValue.textContent = 'Never';
+                }
+            }
+        }
     }
 
     function showAttackPrevention(target) {
@@ -5263,6 +6772,251 @@
     }
 
     // ========================================================================
+    // ONBOARDING EXPERIENCE
+    // ========================================================================
+
+    function syncOnboardingToggle() {
+        if (DOM.onboardingHideToggle) {
+            DOM.onboardingHideToggle.checked = window.appState?.settings?.showOnboarding === false;
+        }
+    }
+
+    function pauseOnboarding(resumeStep, waitCondition = null) {
+        if (window.appState?.settings?.showOnboarding === false) return;
+        onboardingResumeStep = resumeStep;
+        onboardingWaitCondition = waitCondition;
+        hideOnboarding(true);
+    }
+
+    function handleOnboardingResume(triggerType) {
+        if (window.appState?.settings?.showOnboarding === false) {
+            onboardingResumeStep = null;
+            onboardingWaitCondition = null;
+            return;
+        }
+
+        if (onboardingResumeStep === null) return;
+        if (onboardingWaitCondition && onboardingWaitCondition.type && onboardingWaitCondition.type !== triggerType) {
+            return;
+        }
+
+        const resumeStep = onboardingResumeStep;
+        onboardingResumeStep = null;
+        onboardingWaitCondition = null;
+        showOnboarding(true, resumeStep);
+    }
+
+    function updateOnboardingStats() {
+        if (!window.appState) return;
+        const targets = window.appState.getTargets ? window.appState.getTargets() : [];
+        const attackable = targets.filter(t => t.isAttackable()).length;
+        const groupsCount = Array.isArray(window.appState.groups) ? window.appState.groups.length : 0;
+        const hasApiKey = !!window.appState.settings?.apiKey;
+        const notificationsEnabled = !!window.appState.settings?.notifications;
+
+        if (DOM.onboardingTargetCount) DOM.onboardingTargetCount.textContent = formatNumber(targets.length);
+        if (DOM.onboardingAttackableCount) DOM.onboardingAttackableCount.textContent = formatNumber(attackable);
+        if (DOM.onboardingGroupCount) DOM.onboardingGroupCount.textContent = formatNumber(groupsCount || 0);
+
+        if (DOM.onboardingNotifyStatus) {
+            const notifyEnabled = !!window.appState.settings?.notifications;
+            DOM.onboardingNotifyStatus.textContent = notifyEnabled ? 'enabled' : 'disabled';
+            DOM.onboardingNotifyStatus.style.color = notifyEnabled ? 'var(--status-okay)' : 'var(--status-error)';
+        }
+
+        if (DOM.onboardingConnectionStatus) {
+            const online = window.appState.isOnline ?? navigator.onLine;
+            DOM.onboardingConnectionStatus.textContent = online ? 'Online' : 'Offline';
+            DOM.onboardingConnectionStatus.style.color = online ? 'var(--status-okay)' : 'var(--status-error)';
+        }
+
+        if (DOM.onboardingLatency) {
+            const lastDuration = window.appState.api?.lastRequestDuration;
+            if (lastDuration) {
+                DOM.onboardingLatency.textContent = `${lastDuration} ms`;
+            } else {
+                DOM.onboardingLatency.textContent = window.appState.isOnline ? 'Live' : '-- ms';
+            }
+        }
+
+        if (DOM.onboardingRate) {
+            const status = window.appState.limiter?.getStatus?.();
+            if (status) {
+                const max = status.maxTokens || status.availableTokens || 0;
+                const available = status.availableTokens ?? max;
+                DOM.onboardingRate.textContent = `${available}/${max}`;
+            } else {
+                DOM.onboardingRate.textContent = '--/min';
+            }
+        }
+
+        // Smart guidance
+        const guidance = getOnboardingState();
+        if (DOM.onboardingSmartTitle) {
+            DOM.onboardingSmartTitle.textContent = guidance.title;
+        }
+        if (DOM.onboardingSmartCopy) {
+            DOM.onboardingSmartCopy.textContent = guidance.subtitle;
+        }
+
+        const setStatus = (el, text, state) => {
+            if (!el) return;
+            el.classList.remove('ready', 'warning');
+            if (state === 'ready') el.classList.add('ready');
+            if (state === 'warning') el.classList.add('warning');
+            const val = el.querySelector('.status-value');
+            if (val) val.textContent = text;
+        };
+
+        setStatus(DOM.onboardingStatusKey, hasApiKey ? 'Connected' : 'Missing', hasApiKey ? 'ready' : 'warning');
+        setStatus(DOM.onboardingStatusTargets, targets.length ? `${targets.length} added` : 'None added', targets.length ? 'ready' : 'warning');
+        setStatus(DOM.onboardingStatusAlerts, notificationsEnabled ? 'Enabled' : 'Disabled', notificationsEnabled ? 'ready' : 'warning');
+    }
+
+    function setOnboardingStep(stepIndex) {
+        if (!DOM.onboardingSteps || DOM.onboardingSteps.length === 0) return;
+        onboardingStepIndex = Math.max(0, Math.min(stepIndex, DOM.onboardingSteps.length - 1));
+
+        DOM.onboardingSteps.forEach(step => {
+            const isActive = Number(step.dataset.onboardingStep) === onboardingStepIndex;
+            step.classList.toggle('active', isActive);
+        });
+
+        DOM.onboardingTabs?.forEach(tab => {
+            const isActive = Number(tab.dataset.onboardingStep) === onboardingStepIndex;
+            tab.classList.toggle('active', isActive);
+            tab.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+
+        if (DOM.onboardingProgressBar) {
+            const pct = ((onboardingStepIndex + 1) / DOM.onboardingSteps.length) * 100;
+            DOM.onboardingProgressBar.style.width = `${pct}%`;
+        }
+
+        if (DOM.onboardingPrev) {
+            DOM.onboardingPrev.disabled = onboardingStepIndex === 0;
+        }
+        if (DOM.onboardingNext) {
+            const state = getOnboardingState();
+            if (onboardingStepIndex === DOM.onboardingSteps.length - 1) {
+                DOM.onboardingNext.textContent = state.hasTargets && state.notificationsEnabled ? 'Finish' : 'Next';
+            } else if (!state.hasApiKey && onboardingStepIndex === 0) {
+                DOM.onboardingNext.textContent = 'Add API Key';
+            } else if (!state.hasTargets && onboardingStepIndex === 1) {
+                DOM.onboardingNext.textContent = 'Add Targets';
+            } else if (!state.notificationsEnabled && onboardingStepIndex === 2) {
+                DOM.onboardingNext.textContent = 'Enable Alerts';
+            } else {
+                DOM.onboardingNext.textContent = 'Next';
+            }
+        }
+    }
+
+    function changeOnboardingStep(delta) {
+        setOnboardingStep(onboardingStepIndex + delta);
+        updateOnboardingStats();
+    }
+
+    function getOnboardingState() {
+        const hasApiKey = !!window.appState?.settings?.apiKey;
+        const targets = window.appState?.getTargets?.() || [];
+        const hasTargets = targets.length > 0;
+        const notificationsEnabled = !!window.appState?.settings?.notifications;
+
+        let recommendedStep = 0;
+        let title = 'Next best step ready';
+        let subtitle = 'We’ll route you to the highest-impact action so you can finish setup without thinking.';
+
+        if (!hasApiKey) {
+            recommendedStep = 0;
+            title = 'Connect your API key';
+            subtitle = 'Add your Torn API key to unlock live statuses, rate-aware refresh, and attack-ready intel.';
+        } else if (!hasTargets) {
+            recommendedStep = 1;
+            title = 'Add your first targets';
+            subtitle = 'Populate the grid with a single ID or bulk import so we can track attack windows for you.';
+        } else if (!notificationsEnabled) {
+            recommendedStep = 2;
+            title = 'Turn on alerts';
+            subtitle = 'Enable notifications so every status change, attack window, and loot timer reaches you instantly.';
+        } else {
+            recommendedStep = onboardingStepIndex;
+            title = 'You’re all set';
+            subtitle = 'Everything is wired. Explore loot timers, stats, or keep refining your groups and alerts.';
+        }
+
+        return { hasApiKey, hasTargets, notificationsEnabled, recommendedStep, title, subtitle };
+    }
+
+    function showOnboarding(force = false, stepOverride = null) {
+        const shouldShow = force || window.appState?.settings?.showOnboarding !== false;
+        if (!shouldShow || !DOM.onboardingOverlay) return;
+        const state = getOnboardingState();
+        const initialStep = stepOverride !== null ? stepOverride : state.recommendedStep;
+        DOM.onboardingOverlay.classList.add('visible');
+        DOM.onboardingOverlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('onboarding-open');
+        setOnboardingStep(initialStep);
+        syncOnboardingToggle();
+        updateOnboardingStats();
+    }
+
+    function hideOnboarding(temporary = false) {
+        if (!DOM.onboardingOverlay) return;
+        DOM.onboardingOverlay.classList.remove('visible');
+        DOM.onboardingOverlay.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('onboarding-open');
+        if (!temporary) {
+            onboardingResumeStep = null;
+            onboardingWaitCondition = null;
+        }
+    }
+
+    function handleOnboardingAction(action) {
+        switch (action) {
+            case 'open-settings':
+                pauseOnboarding(1, { type: 'api' });
+                switchView('settings');
+                break;
+            case 'validate-api':
+                pauseOnboarding(1, { type: 'api' });
+                switchView('settings');
+                handleValidateKey();
+                break;
+            case 'add-target': {
+                const baseline = window.appState?.getTargets?.().length || 0;
+                pauseOnboarding(2, { type: 'targets', baseline });
+                openModal('modal-add-target');
+                break;
+            }
+            case 'bulk-add': {
+                const baseline = window.appState?.getTargets?.().length || 0;
+                pauseOnboarding(2, { type: 'targets', baseline });
+                openModal('modal-bulk-add');
+                break;
+            }
+            case 'enable-notifications':
+                window.appState.updateSettings({ notifications: true, soundEnabled: true });
+                showToast('Notifications enabled', 'success');
+                updateOnboardingStats();
+                handleOnboardingResume('notifications');
+                break;
+            case 'open-loot':
+                pauseOnboarding(onboardingStepIndex, { type: 'view', targetView: 'loot-timer' });
+                switchView('loot-timer');
+                break;
+            default:
+                break;
+        }
+    }
+
+    function maybeShowOnboarding(force = false) {
+        const shouldShow = force || window.appState?.settings?.showOnboarding !== false;
+        if (!shouldShow) return;
+        setTimeout(() => showOnboarding(force), 140);
+    }
+
+    // ========================================================================
     // PREMIUM ALERT DIALOG
     // ========================================================================
 
@@ -5466,6 +7220,33 @@
         await window.appState.initialize();
 
         console.log('Application initialized');
+
+        // Update WiFi icon on initialization
+        updateWifiIcon();
+        refreshConnectionIndicators();
+
+        // Listen for internet connectivity changes
+        window.addEventListener('online', updateWifiIcon);
+        window.addEventListener('offline', updateWifiIcon);
+
+        // Listen for connection state changes from connection dialog
+        window.addEventListener('storage', (e) => {
+            if (e.key && e.key.startsWith('connection_')) {
+                console.log('[WiFi Icon] Connection state changed:', e.key, e.newValue);
+                updateWifiIcon();
+            }
+        });
+
+        // Listen for connection check completion
+        if (window.electronAPI && window.electronAPI.onConnectionCheckCompleted) {
+            window.electronAPI.onConnectionCheckCompleted(() => {
+                console.log('[WiFi Icon] Connection check completed, updating icon');
+                updateWifiIcon();
+            });
+        }
+
+        // Update WiFi icon periodically (every 5 seconds)
+        setInterval(updateWifiIcon, 5000);
     }
 
     // Wait for DOM ready
