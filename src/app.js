@@ -204,7 +204,9 @@
         settingCloudBackup: null,
         settingCloudProvider: null,
         btnCloudPath: null,
-        cloudBackupPath: null
+        btnCloudDetect: null,
+        cloudBackupPath: null,
+        cloudProviderHint: null
     };
 
     const INTEL_STALE_MS = 15 * 60 * 1000;
@@ -575,7 +577,9 @@
         DOM.settingCloudBackup = document.getElementById('setting-cloud-backup');
         DOM.settingCloudProvider = document.getElementById('setting-cloud-provider');
         DOM.btnCloudPath = document.getElementById('btn-cloud-path');
+        DOM.btnCloudDetect = document.getElementById('btn-cloud-detect');
         DOM.cloudBackupPath = document.getElementById('cloud-backup-path');
+        DOM.cloudProviderHint = document.getElementById('cloud-provider-hint');
     }
 
     // ========================================================================
@@ -1039,6 +1043,7 @@
             cloudBackupPath: result.path,
             cloudBackupEnabled: true
         });
+        updateCloudProviderHint(DOM.settingCloudProvider?.value || 'custom-folder', 'Using your folder');
         showToast('Cloud backup folder set', 'success');
     }
 
@@ -1532,6 +1537,11 @@
                     }
                 } else if (settingKey === 'cloudBackupEnabled') {
                     syncCloudBackupControls();
+                    if (e.target.checked) {
+                        autoDetectCloudPath({ provider: DOM.settingCloudProvider?.value, silent: true });
+                    } else {
+                        updateCloudProviderHint(DOM.settingCloudProvider?.value || 'google-drive', 'Disabled');
+                    }
                 } else if (settingKey === 'showOnboarding') {
                     syncOnboardingToggle();
                 }
@@ -1606,10 +1616,11 @@
         });
 
         document.getElementById('setting-cloud-provider')?.addEventListener('change', (e) => {
-            window.appState.updateSettings({ cloudBackupProvider: e.target.value });
+            handleCloudProviderChange(e.target.value);
         });
 
         DOM.btnCloudPath?.addEventListener('click', handleChooseCloudPath);
+        DOM.btnCloudDetect?.addEventListener('click', () => autoDetectCloudPath({ provider: DOM.settingCloudProvider?.value, force: true }));
 
         // Export/Import
         document.getElementById('btn-export')?.addEventListener('click', handleExportTargets);
@@ -4807,6 +4818,61 @@
         renderTargetList();
     }
 
+    const CLOUD_PROVIDER_META = {
+        'google-drive': {
+            label: 'Google Drive',
+            hint: 'Auto-detects your Drive for Desktop folder and nests backups to avoid clutter.'
+        },
+        dropbox: {
+            label: 'Dropbox',
+            hint: 'Looks for your Dropbox sync folder; ideal for quick multi-device restores.'
+        },
+        onedrive: {
+            label: 'OneDrive',
+            hint: 'Targets OneDrive/OneDrive Personal folders and keeps backups grouped together.'
+        },
+        'icloud-drive': {
+            label: 'iCloud Drive',
+            hint: 'Uses iCloud Drive sync locations (Library/CloudStorage) when available.'
+        },
+        box: {
+            label: 'Box',
+            hint: 'Prefers Box/Box Sync folders; choose a custom path if you renamed it.'
+        },
+        mega: {
+            label: 'MEGA',
+            hint: 'Searches for MEGA or MEGAsync folders and writes into a dedicated subfolder.'
+        },
+        'custom-folder': {
+            label: 'Custom Folder',
+            hint: 'Use any folder (local or network). Point it at a synced location if you want cloud copies.'
+        }
+    };
+
+    function getCloudProviderMeta(provider) {
+        return CLOUD_PROVIDER_META[provider] || {
+            label: 'Cloud Folder',
+            hint: 'Pick a provider and folder where backups should be copied.'
+        };
+    }
+
+    function getCloudProviderLabel(provider) {
+        return getCloudProviderMeta(provider).label;
+    }
+
+    function updateCloudProviderHint(provider, statusText = '') {
+        if (!DOM.cloudProviderHint) return;
+        const meta = getCloudProviderMeta(provider);
+        const status = statusText ? ` • ${statusText}` : '';
+        DOM.cloudProviderHint.textContent = `${meta.hint}${status}`;
+    }
+
+    function setCloudPathText(pathText) {
+        if (DOM.cloudBackupPath) {
+            DOM.cloudBackupPath.textContent = pathText || 'No folder selected';
+        }
+    }
+
     function syncCloudBackupControls() {
         const enabled = DOM.settingCloudBackup?.checked;
         if (DOM.settingCloudProvider) {
@@ -4815,9 +4881,99 @@
         if (DOM.btnCloudPath) {
             DOM.btnCloudPath.disabled = !enabled;
         }
+        if (DOM.btnCloudDetect) {
+            DOM.btnCloudDetect.disabled = !enabled;
+        }
         if (DOM.cloudBackupPath) {
             DOM.cloudBackupPath.classList.toggle('muted', !enabled);
         }
+
+        const provider = DOM.settingCloudProvider?.value || 'google-drive';
+        updateCloudProviderHint(provider, enabled ? '' : 'Disabled');
+    }
+
+    async function autoDetectCloudPath(options = {}) {
+        const provider = options.provider || DOM.settingCloudProvider?.value || 'google-drive';
+        const silent = options.silent === true;
+        const force = options.force === true;
+
+        if (provider === 'custom-folder') {
+            updateCloudProviderHint(provider, 'Choose a folder to enable backups');
+            if (!silent) {
+                showToast('Select a folder for custom cloud backups.', 'info');
+            }
+            return { success: false, reason: 'custom-provider' };
+        }
+
+        if (!window.electronAPI?.resolveCloudPath) {
+            if (!silent) {
+                showToast('Auto-detect is unavailable on this platform.', 'error');
+            }
+            return { success: false, reason: 'bridge-missing' };
+        }
+
+        try {
+            const currentPath = force ? '' : (window.appState?.settings?.cloudBackupPath || '');
+            const result = await window.electronAPI.resolveCloudPath(provider, currentPath);
+            if (result?.ok && result.path) {
+                setCloudPathText(result.path);
+                await window.appState.updateSettings({
+                    cloudBackupPath: result.path,
+                    cloudBackupProvider: provider,
+                    cloudBackupEnabled: true
+                });
+                syncCloudBackupControls();
+                updateCloudProviderHint(provider, result.usedDefault ? 'Auto-detected' : 'Using your folder');
+                if (!silent) {
+                    showToast(`${getCloudProviderLabel(provider)} ready at ${result.path}`, 'success');
+                }
+                return { success: true, path: result.path, usedDefault: result.usedDefault };
+            }
+
+            updateCloudProviderHint(provider, 'Choose a folder to continue');
+            if (!silent) {
+                showToast(`Could not find a ${getCloudProviderLabel(provider)} folder. Choose one manually.`, 'warning');
+            }
+            return { success: false, reason: result?.reason || 'not-found' };
+        } catch (error) {
+            if (!silent) {
+                showToast('Auto-detect failed: ' + (error.message || 'Unknown error'), 'error');
+            }
+            return { success: false, reason: error.message };
+        }
+    }
+
+    async function handleCloudProviderChange(provider) {
+        await window.appState.updateSettings({ cloudBackupProvider: provider });
+        const enabled = DOM.settingCloudBackup?.checked;
+        updateCloudProviderHint(provider, enabled ? '' : 'Disabled');
+
+        if (!enabled) return;
+
+        if (provider === 'custom-folder') {
+            if (!window.appState.settings?.cloudBackupPath) {
+                setCloudPathText('No folder selected');
+                updateCloudProviderHint(provider, 'Choose a folder to enable backups');
+            } else {
+                updateCloudProviderHint(provider, 'Using your folder');
+            }
+            return;
+        }
+
+        try {
+            if (window.electronAPI?.validateCloudPath) {
+                const validation = await window.electronAPI.validateCloudPath(provider, window.appState.settings?.cloudBackupPath || '');
+                if (validation?.ok && validation.path) {
+                    setCloudPathText(validation.path);
+                    updateCloudProviderHint(provider, validation.usedDefault ? 'Auto-detected' : 'Using your folder');
+                    return;
+                }
+            }
+        } catch (error) {
+            console.warn('Cloud path validation failed', error);
+        }
+
+        await autoDetectCloudPath({ provider, silent: true, force: true });
     }
 
     function loadSettings() {
@@ -4871,9 +5027,21 @@
         document.getElementById('setting-backup-preop').checked = settings.backupBeforeBulk !== false;
         document.getElementById('setting-cloud-backup').checked = settings.cloudBackupEnabled || false;
         document.getElementById('setting-cloud-provider').value = settings.cloudBackupProvider || 'google-drive';
-        document.getElementById('cloud-backup-path').textContent = settings.cloudBackupPath || 'No folder selected';
+        setCloudPathText(settings.cloudBackupPath || '');
         document.getElementById('setting-max-history').value = settings.maxHistoryEntries || 1000;
         syncCloudBackupControls();
+        updateCloudProviderHint(settings.cloudBackupProvider || 'google-drive', settings.cloudBackupEnabled ? '' : 'Disabled');
+
+        if (settings.cloudBackupEnabled && window.electronAPI?.validateCloudPath && settings.cloudBackupProvider !== 'custom-folder') {
+            window.electronAPI.validateCloudPath(settings.cloudBackupProvider, settings.cloudBackupPath || '').then((validation) => {
+                if (validation?.ok && validation.path) {
+                    setCloudPathText(validation.path);
+                    updateCloudProviderHint(settings.cloudBackupProvider, validation.usedDefault ? 'Auto-detected' : 'Using your folder');
+                }
+            }).catch(() => {
+                // Silent failure, user will see hint to choose folder if needed
+            });
+        }
 
         document.body.classList.toggle('compact-mode', settings.compactMode);
 
