@@ -221,6 +221,12 @@ let trayStatus = {
 };
 let trayPopoverWindow = null;
 let trayPopoverHideTimer = null;
+let trayMenuWindow = null;
+let trayMenuHideTimer = null;
+let lastTrayBounds = null;
+let lastTrayWorkArea = null;
+const TRAY_MENU_MARGIN = 8;
+let trayMenuOpen = false;
 
 // ============================================================================
 // ENCRYPTION HELPERS
@@ -343,6 +349,7 @@ function buildTrayIntel() {
         syncLabel,
         rateIcon,
         rateLabel,
+        ratePercent,
         backupIcon,
         backupLabel,
         lastAttack,
@@ -357,37 +364,51 @@ function buildTrayIntel() {
 }
 
 const TRAY_ICONS = {
-    attackable: '[ATK]',
-    sync: '[SYNC]',
-    rate: '[API]',
-    backup: '[BKUP]',
-    total: '[LIFE]',
-    lastAttack: '[LAST]',
-    window: '[APP]',
-    refresh: '[REFRESH]',
-    quickAdd: '[ADD]',
-    settings: '[CFG]',
-    notifications: '[ALRT]',
-    sound: '[SND]',
-    startMin: '[BOOT]',
-    keepTray: '[TRAY]',
-    backupNow: '[SAVE]',
-    folder: '[FILES]',
-    logs: '[LOGS]',
-    quit: '[EXIT]'
+    attackable: '⚔️',
+    sync: '🔄',
+    rate: '🪙',
+    backup: '💾',
+    total: '📈',
+    lastAttack: '🎯',
+    window: '🪟',
+    refresh: '🔁',
+    quickAdd: '➕',
+    settings: '⚙️',
+    notifications: '🔔',
+    sound: '🔊',
+    startMin: '📥',
+    keepTray: '📌',
+    backupNow: '🧰',
+    folder: '📂',
+    logs: '🧾',
+    quit: '⏻'
 };
 
 function trayLabel(icon, text) {
     return `${icon} ${text}`;
 }
 
-function traySection(title) {
-    return { label: `[ ${title.toUpperCase()} ]`, enabled: false };
+function trayLine(iconKey, primary, detail) {
+    const suffix = detail ? ` • ${detail}` : '';
+    return trayLabel(TRAY_ICONS[iconKey], `${primary}${suffix}`);
 }
 
-function trayStatusItem(iconKey, label, value) {
-    const safeValue = value === undefined || value === null ? 'n/a' : value;
-    return { label: trayLabel(TRAY_ICONS[iconKey], `${label}: ${safeValue}`), enabled: false };
+function trayToggleItem(id, iconKey, text, enabled, onClick) {
+    return {
+        id,
+        label: trayLabel(TRAY_ICONS[iconKey], text),
+        accelerator: enabled ? '✓' : '',
+        click: onClick
+    };
+}
+
+function traySection(title) {
+    return { label: title.toUpperCase(), enabled: false };
+}
+
+function trayStatusRow(iconKey, primary, detail) {
+    const safePrimary = primary === undefined || primary === null ? 'n/a' : primary;
+    return { label: trayLine(iconKey, safePrimary, detail || null), enabled: false };
 }
 
 function cleanMenu(items) {
@@ -535,6 +556,131 @@ function sanitizeAttackHistory(history = []) {
 // BACKUP SYSTEM
 // ============================================================================
 
+const CLOUD_BACKUP_SUBDIR = 'TornTargetTracker';
+const CLOUD_PROVIDER_PRESETS = {
+    'google-drive': {
+        label: 'Google Drive',
+        win: ['Google Drive', 'My Drive', path.join('Google Drive', 'My Drive')],
+        mac: ['Google Drive', path.join('Google Drive', 'My Drive'), path.join('Library', 'CloudStorage', 'GoogleDrive-MyDrive')],
+        linux: ['Google Drive', 'My Drive']
+    },
+    dropbox: {
+        label: 'Dropbox',
+        win: ['Dropbox', 'Dropbox (Personal)', path.join('Dropbox (Personal)', 'Dropbox'), path.join('Dropbox', 'My PC')],
+        mac: ['Dropbox', 'Dropbox (Personal)'],
+        linux: ['Dropbox']
+    },
+    onedrive: {
+        label: 'OneDrive',
+        win: ['OneDrive', 'OneDrive - Personal', 'OneDrive - Microsoft', path.join('OneDrive', 'Documents')],
+        mac: ['OneDrive', path.join('Library', 'CloudStorage', 'OneDrive')],
+        linux: ['OneDrive']
+    },
+    'icloud-drive': {
+        label: 'iCloud Drive',
+        win: ['iCloudDrive'],
+        mac: [path.join('Library', 'Mobile Documents', 'com~apple~CloudDocs'), path.join('Library', 'CloudStorage', 'iCloud Drive')],
+        linux: []
+    },
+    box: {
+        label: 'Box',
+        win: ['Box', path.join('Box', 'Box Sync')],
+        mac: ['Box', 'Box Sync'],
+        linux: ['Box']
+    },
+    mega: {
+        label: 'MEGA',
+        win: ['MEGA', 'MEGA Sync', path.join('MEGA', 'My Backups')],
+        mac: ['MEGA', 'MEGAsync'],
+        linux: ['MEGA', 'MEGAsync']
+    },
+    'custom-folder': {
+        label: 'Custom Folder',
+        win: [],
+        mac: [],
+        linux: []
+    }
+};
+
+function getCloudPlatformKey() {
+    if (process.platform === 'win32') return 'win';
+    if (process.platform === 'darwin') return 'mac';
+    return 'linux';
+}
+
+function getCloudProviderLabel(provider) {
+    return CLOUD_PROVIDER_PRESETS[provider]?.label || 'Cloud Folder';
+}
+
+function getCloudCandidates(provider) {
+    const preset = CLOUD_PROVIDER_PRESETS[provider];
+    if (!preset) return [];
+
+    const platformKey = getCloudPlatformKey();
+    const home = app.getPath('home');
+    const candidates = preset[platformKey] || [];
+
+    return candidates
+        .filter(Boolean)
+        .map(candidate => path.isAbsolute(candidate) ? candidate : path.join(home, candidate));
+}
+
+function resolveCloudBasePath(provider, customPath = '') {
+    const trimmed = (customPath || '').trim();
+    if (trimmed) {
+        if (fs.existsSync(trimmed)) {
+            return trimmed;
+        }
+    }
+
+    const candidates = getCloudCandidates(provider);
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+function ensureCloudBackupPath(provider, customPath = '') {
+    const basePath = resolveCloudBasePath(provider, customPath);
+    if (!basePath) {
+        return { ok: false, reason: 'not-found', usedDefault: !customPath, basePath: null, path: null };
+    }
+
+    const customProvided = !!customPath;
+    const customExists = customProvided && fs.existsSync(customPath);
+    const isCandidateMatch = customProvided
+        ? getCloudCandidates(provider).some(candidate => {
+            try {
+                return path.resolve(candidate) === path.resolve(customPath);
+            } catch (error) {
+                return false;
+            }
+        })
+        : false;
+
+    const shouldScope = !customProvided || isCandidateMatch || !customExists;
+    const scopedPath = shouldScope ? path.join(basePath, CLOUD_BACKUP_SUBDIR) : basePath;
+
+    try {
+        fs.mkdirSync(scopedPath, { recursive: true });
+        fs.accessSync(scopedPath, fs.constants.W_OK);
+        return { ok: true, reason: null, usedDefault: shouldScope, basePath, path: scopedPath };
+    } catch (error) {
+        return { ok: false, reason: error.message, usedDefault: shouldScope, basePath, path: scopedPath };
+    }
+}
+
+function validateCloudPath(provider, customPath = '') {
+    const result = ensureCloudBackupPath(provider, customPath);
+    if (!result.ok) {
+        return { ok: false, provider, error: result.reason, usedDefault: result.usedDefault, basePath: result.basePath, path: result.path };
+    }
+
+    return { ok: true, provider, path: result.path, usedDefault: result.usedDefault, basePath: result.basePath };
+}
+
 function getBackupSettings() {
     const settings = store?.get('settings', {}) || {};
     const autoInterval = Number.parseInt(settings.autoBackupInterval, 10);
@@ -600,20 +746,28 @@ function createBackup(options = {}) {
         cleanupOldBackups(backupSettings.retention);
 
         let cloudCopied = null;
-        if (backupSettings.cloud.enabled && backupSettings.cloud.path) {
-            try {
-                if (!fs.existsSync(backupSettings.cloud.path)) {
-                    fs.mkdirSync(backupSettings.cloud.path, { recursive: true });
+        if (backupSettings.cloud.enabled) {
+            const cloudInfo = ensureCloudBackupPath(backupSettings.cloud.provider, backupSettings.cloud.path);
+            if (cloudInfo.ok && cloudInfo.path) {
+                try {
+                    const cloudFile = path.join(cloudInfo.path, path.basename(backupFile));
+                    fs.copyFileSync(backupFile, cloudFile);
+                    cloudCopied = cloudFile;
+                } catch (error) {
+                    cloudCopied = null;
+                    logger?.warn?.('Cloud backup failed', {
+                        error: error.message,
+                        provider: getCloudProviderLabel(backupSettings.cloud.provider),
+                        requestedProvider: backupSettings.cloud.provider,
+                        path: cloudInfo.path
+                    });
                 }
-                const cloudFile = path.join(backupSettings.cloud.path, path.basename(backupFile));
-                fs.copyFileSync(backupFile, cloudFile);
-                cloudCopied = cloudFile;
-            } catch (error) {
-                cloudCopied = null;
-                logger?.warn?.('Cloud backup failed', {
-                    error: error.message,
-                    provider: backupSettings.cloud.provider,
-                    path: backupSettings.cloud.path
+            } else {
+                logger?.warn?.('Cloud backup skipped (path unavailable)', {
+                    provider: getCloudProviderLabel(backupSettings.cloud.provider),
+                    requestedProvider: backupSettings.cloud.provider,
+                    configuredPath: backupSettings.cloud.path || null,
+                    resolutionError: cloudInfo.reason || 'not-found'
                 });
             }
         }
@@ -1022,6 +1176,12 @@ function createTray() {
             updateTrayContextMenu();
         });
 
+        tray.on('right-click', (_event, bounds) => {
+            if (!tray) return;
+            const intel = buildTrayIntel();
+            showTrayMenu(intel, bounds || tray.getBounds());
+        });
+
         // Tooltip updater
         if (trayTooltipInterval) {
             clearInterval(trayTooltipInterval);
@@ -1038,24 +1198,41 @@ function buildTrayMenu(intel) {
     const needsRefresh = intel.refreshAgeMinutes === null || intel.refreshAgeMinutes > 20;
     const staleMinutes = intel.refreshAgeMinutes !== null ? Math.max(0, Math.round(intel.refreshAgeMinutes)) : null;
 
-    const attackSummary = intel.totalTargets
-        ? `${intel.attackable}/${intel.totalTargets} ${intel.attackable > 0 ? 'ready' : 'idle'}`
-        : 'no targets';
-    const syncSummary = needsRefresh
-        ? (intel.refreshAgeMinutes === null ? 'never synced' : `${intel.syncLabel} - stale`)
-        : intel.syncLabel;
+    const readySummary = intel.totalTargets
+        ? `Ready ${intel.attackable}/${intel.totalTargets}`
+        : 'No targets';
+    const lifetimeDetail = intel.stats.totalAttacks ? `Lifetime ${intel.stats.totalAttacks}` : null;
+    const syncPrimary = intel.syncLabel === 'never' ? 'Sync pending' : `Sync ${intel.syncLabel}`;
+    const syncDetail = needsRefresh
+        ? (intel.refreshAgeMinutes === null ? 'Stale' : `Stale ${staleMinutes}m`)
+        : 'Fresh';
+    const rateDetail = intel.ratePercent === null
+        ? null
+        : intel.ratePercent <= 10
+            ? 'Critically low'
+            : intel.ratePercent <= 30
+                ? 'Low'
+                : intel.ratePercent <= 60
+                    ? 'Okay'
+                    : 'Healthy';
+    const backupPrimary = intel.backupLabel === 'never'
+        ? 'Backup missing'
+        : `Backup ${intel.backupLabel}`;
 
     const statusItems = [
         traySection('Status'),
-        trayStatusItem('attackable', 'Attackable', attackSummary),
-        trayStatusItem('sync', 'Last sync', syncSummary),
-        trayStatusItem('rate', 'API tokens', intel.rateLabel),
-        trayStatusItem('backup', 'Last backup', intel.backupLabel),
-        trayStatusItem('total', 'Lifetime attacks', intel.stats.totalAttacks || 0),
+        trayStatusRow('attackable', readySummary, lifetimeDetail),
+        trayStatusRow('sync', syncPrimary, syncDetail),
+        trayStatusRow('rate', `API ${intel.rateLabel}`, rateDetail),
+        trayStatusRow(
+            'backup',
+            backupPrimary,
+            intel.backupLabel === 'never' ? 'Run a backup soon' : null
+        ),
         intel.lastAttackLabel
             ? {
                 id: 'tray-last-attack',
-                label: trayLabel(TRAY_ICONS.lastAttack, `Last attack: ${intel.lastAttackLabel}`),
+                label: trayLine('lastAttack', `Last ${intel.lastAttackLabel}`),
                 enabled: !!intel.lastAttack?.userId,
                 click: () => {
                     if (intel.lastAttack?.userId) {
@@ -1089,9 +1266,9 @@ function buildTrayMenu(intel) {
                 TRAY_ICONS.refresh,
                 needsRefresh
                     ? (intel.refreshAgeMinutes === null
-                        ? 'Refresh - never synced'
-                        : `Refresh - stale ${staleMinutes}m`)
-                    : 'Refresh all targets'
+                        ? 'Refresh now (never synced)'
+                        : `Refresh now (stale ${staleMinutes}m)`)
+                    : 'Refresh now'
             ),
             click: () => {
                 mainWindow?.webContents.send('trigger-refresh');
@@ -1107,7 +1284,7 @@ function buildTrayMenu(intel) {
         },
         {
             id: 'tray-settings',
-            label: trayLabel(TRAY_ICONS.settings, 'Open settings'),
+            label: trayLabel(TRAY_ICONS.settings, 'Settings'),
             click: () => {
                 focusMainWindow();
                 mainWindow?.webContents.send('open-settings');
@@ -1117,35 +1294,35 @@ function buildTrayMenu(intel) {
     ];
 
     const preferenceItems = [
-        traySection('Preferences'),
-        {
-            id: 'tray-notifications',
-            label: trayLabel(TRAY_ICONS.notifications, 'Notifications'),
-            type: 'checkbox',
-            checked: intel.notificationsEnabled,
-            click: () => updateTraySetting('notifications', !store.get('settings.notifications'))
-        },
-        {
-            id: 'tray-sound',
-            label: trayLabel(TRAY_ICONS.sound, 'Notification sound'),
-            type: 'checkbox',
-            checked: intel.soundEnabled,
-            click: () => updateTraySetting('soundEnabled', !store.get('settings.soundEnabled'))
-        },
-        {
-            id: 'tray-start-minimized',
-            label: trayLabel(TRAY_ICONS.startMin, 'Launch minimized'),
-            type: 'checkbox',
-            checked: intel.startMinimized,
-            click: () => updateTraySetting('startMinimized', !store.get('settings.startMinimized'))
-        },
-        {
-            id: 'tray-keep-tray',
-            label: trayLabel(TRAY_ICONS.keepTray, 'Keep in tray'),
-            type: 'checkbox',
-            checked: intel.minimizeToTray,
-            click: () => updateTraySetting('minimizeToTray', !store.get('settings.minimizeToTray'))
-        },
+        traySection('Toggles'),
+        trayToggleItem(
+            'tray-notifications',
+            'notifications',
+            'Notifications',
+            intel.notificationsEnabled,
+            () => updateTraySetting('notifications', !store.get('settings.notifications'))
+        ),
+        trayToggleItem(
+            'tray-sound',
+            'sound',
+            'Sound alerts',
+            intel.soundEnabled,
+            () => updateTraySetting('soundEnabled', !store.get('settings.soundEnabled'))
+        ),
+        trayToggleItem(
+            'tray-start-minimized',
+            'startMin',
+            'Start minimized',
+            intel.startMinimized,
+            () => updateTraySetting('startMinimized', !store.get('settings.startMinimized'))
+        ),
+        trayToggleItem(
+            'tray-keep-tray',
+            'keepTray',
+            'Keep in tray',
+            intel.minimizeToTray,
+            () => updateTraySetting('minimizeToTray', !store.get('settings.minimizeToTray'))
+        ),
         { type: 'separator' }
     ];
 
@@ -1153,7 +1330,7 @@ function buildTrayMenu(intel) {
         traySection('Maintenance'),
         {
             id: 'tray-backup-now',
-            label: trayLabel(TRAY_ICONS.backupNow, 'Create backup now'),
+            label: trayLabel(TRAY_ICONS.backupNow, 'Backup now'),
             click: () => {
                 const result = createBackup();
                 if (!result.success) {
@@ -1166,7 +1343,7 @@ function buildTrayMenu(intel) {
         },
         {
             id: 'tray-open-backups',
-            label: trayLabel(TRAY_ICONS.folder, 'Open backup folder'),
+            label: trayLabel(TRAY_ICONS.folder, 'Backup folder'),
             click: () => {
                 const dir = ensureBackupDir();
                 shell.openPath(dir);
@@ -1174,7 +1351,7 @@ function buildTrayMenu(intel) {
         },
         {
             id: 'tray-open-logs',
-            label: trayLabel(TRAY_ICONS.logs, 'Open logs'),
+            label: trayLabel(TRAY_ICONS.logs, 'Logs folder'),
             click: () => {
                 const logDir = path.join(app.getPath('userData'), 'logs');
                 shell.openPath(logDir);
@@ -1211,9 +1388,8 @@ function updateTrayContextMenu() {
     const intel = buildTrayIntel();
 
     // Always rebuild the menu with fresh data to ensure it's up-to-date
-    // This is necessary because Windows doesn't support live menu updates
+    // The menu is shown via popUpContextMenu to control placement
     trayMenu = buildTrayMenu(intel);
-    tray.setContextMenu(trayMenu);
 }
 
 function updateTrayTooltip() {
@@ -1228,6 +1404,368 @@ function updateTrayTooltip() {
 
     const tooltipText = `Torn Target Tracker\nAttackable: ${attackable}/${totalTargets}\nLast refresh: ${refreshText}`;
     tray.setToolTip(tooltipText);
+}
+
+function closeTrayMenu() {
+    clearTimeout(trayMenuHideTimer);
+    trayMenuHideTimer = null;
+    trayMenuOpen = false;
+    if (trayMenuWindow) {
+        trayMenuWindow.destroy();
+        trayMenuWindow = null;
+    }
+    scheduleHideTrayPopover(0, true);
+}
+
+function handleTrayMenuAction(id) {
+    switch (id) {
+        case 'tray-window':
+            if (!mainWindow) break;
+            if (mainWindow.isVisible()) {
+                mainWindow.hide();
+            } else {
+                focusMainWindow();
+            }
+            break;
+        case 'tray-refresh':
+            mainWindow?.webContents.send('trigger-refresh');
+            break;
+        case 'tray-quick-add':
+            focusMainWindow();
+            mainWindow?.webContents.send('open-add-target');
+            break;
+        case 'tray-settings':
+            focusMainWindow();
+            mainWindow?.webContents.send('open-settings');
+            break;
+        case 'tray-notifications':
+            updateTraySetting('notifications', !store.get('settings.notifications'));
+            break;
+        case 'tray-sound':
+            updateTraySetting('soundEnabled', !store.get('settings.soundEnabled'));
+            break;
+        case 'tray-start-minimized':
+            updateTraySetting('startMinimized', !store.get('settings.startMinimized'));
+            break;
+        case 'tray-keep-tray':
+            updateTraySetting('minimizeToTray', !store.get('settings.minimizeToTray'));
+            break;
+        case 'tray-backup-now': {
+            const result = createBackup();
+            if (!result.success) {
+                dialog.showErrorBox('Backup Failed', result.error || 'Unknown error');
+            } else {
+                showNotification('Backup created', path.basename(result.file));
+            }
+            break;
+        }
+        case 'tray-open-backups': {
+            const dir = ensureBackupDir();
+            shell.openPath(dir);
+            break;
+        }
+        case 'tray-open-logs': {
+            const logDir = path.join(app.getPath('userData'), 'logs');
+            shell.openPath(logDir);
+            break;
+        }
+        case 'tray-quit':
+            isQuitting = true;
+            app.quit();
+            break;
+        case 'tray-last-attack':
+            try {
+                const history = store?.get('attackHistory', []) || [];
+                const last = history.length ? history[history.length - 1] : null;
+                if (last?.userId) {
+                    const url = `https://www.torn.com/profiles.php?XID=${last.userId}`;
+                    shell.openExternal(url);
+                }
+            } catch {
+                // no-op
+            }
+            break;
+        case 'status-backup':
+            // informational only
+            break;
+        case 'status-ready':
+        case 'status-sync':
+        case 'status-api':
+            // informational rows; no action
+            break;
+        default:
+            break;
+    }
+    closeTrayMenu();
+}
+
+function computeMenuPosition(bounds, workArea, width, height) {
+    // Position above the icon, left-aligned to icon's left, clamped to work area
+    let x = Math.round(bounds.x - width + bounds.width);
+    let y = Math.round(bounds.y - height - TRAY_MENU_MARGIN);
+
+    if (y < workArea.y + 4) {
+        y = Math.min(bounds.y + bounds.height + TRAY_MENU_MARGIN, workArea.y + workArea.height - height - 4);
+    }
+    x = Math.min(Math.max(workArea.x + 4, x), workArea.x + workArea.width - width - 4);
+
+    return { x, y };
+}
+
+function showTrayMenu(intel, bounds) {
+    closeTrayMenu();
+
+    const tickPath = path.join(__dirname, 'assets', 'tick.png');
+    let tickDataUrl = '';
+    try {
+        const tickBuffer = fs.readFileSync(tickPath);
+        tickDataUrl = `data:image/png;base64,${tickBuffer.toString('base64')}`;
+    } catch {
+        tickDataUrl = '';
+    }
+
+    const width = 290;
+    const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
+    const workArea = display.workArea;
+
+    lastTrayBounds = bounds;
+    lastTrayWorkArea = workArea;
+
+    const rows =
+        5 + // status
+        (intel.lastAttackLabel ? 1 : 0) +
+        4 + // actions
+        4 + // toggles
+        3 + // maintenance
+        1;  // app
+    const headers = 5;
+    const separators = 4;
+    const estimateHeight = rows * 24 + headers * 12 + separators * 6 + 28;
+    const maxHeight = Math.max(360, workArea.height - 12);
+    const height = Math.min(Math.max(estimateHeight, 360), maxHeight);
+
+    const { x, y } = computeMenuPosition(bounds, workArea, width, height);
+
+    const sections = [
+        {
+            title: 'STATUS',
+            items: [
+                { id: 'status-ready', icon: TRAY_ICONS.attackable, label: intel.totalTargets ? `Ready ${intel.attackable}/${intel.totalTargets}` : 'No targets', detail: intel.stats.totalAttacks ? `Lifetime ${intel.stats.totalAttacks}` : null },
+                { id: 'status-sync', icon: intel.syncIcon, label: intel.syncLabel === 'never' ? 'Sync pending' : `Sync ${intel.syncLabel}`, detail: intel.refreshAgeMinutes === null || intel.refreshAgeMinutes > 20 ? (intel.refreshAgeMinutes === null ? 'Stale' : `Stale ${Math.max(0, Math.round(intel.refreshAgeMinutes))}m`) : 'Fresh' },
+                { id: 'status-api', icon: TRAY_ICONS.rate, label: `API ${intel.rateLabel}`, detail: intel.ratePercent === null ? null : intel.ratePercent <= 10 ? 'Critically low' : intel.ratePercent <= 30 ? 'Low' : intel.ratePercent <= 60 ? 'Okay' : 'Healthy' },
+                { id: 'status-backup', icon: intel.backupIcon, label: intel.backupLabel === 'never' ? 'Backup missing' : `Backup ${intel.backupLabel}`, detail: intel.backupLabel === 'never' ? 'Run a backup soon' : null },
+                intel.lastAttackLabel
+                    ? { id: 'tray-last-attack', icon: TRAY_ICONS.lastAttack, label: `Last ${intel.lastAttackLabel}`, detail: 'Open profile' }
+                    : null
+            ].filter(Boolean)
+        },
+        {
+            title: 'ACTIONS',
+            items: [
+                { id: 'tray-window', icon: TRAY_ICONS.window, label: mainWindow && mainWindow.isVisible() ? 'Hide window' : 'Show window' },
+                { id: 'tray-refresh', icon: TRAY_ICONS.refresh, label: intel.refreshAgeMinutes === null ? 'Refresh now (never synced)' : intel.refreshAgeMinutes > 20 ? `Refresh now (stale ${Math.max(0, Math.round(intel.refreshAgeMinutes))}m)` : 'Refresh now' },
+                { id: 'tray-quick-add', icon: TRAY_ICONS.quickAdd, label: 'Quick add target (Ctrl+N)' },
+                { id: 'tray-settings', icon: TRAY_ICONS.settings, label: 'Settings' }
+            ]
+        },
+        {
+            title: 'TOGGLES',
+            items: [
+                { id: 'tray-notifications', icon: TRAY_ICONS.notifications, label: 'Notifications', checked: intel.notificationsEnabled },
+                { id: 'tray-sound', icon: TRAY_ICONS.sound, label: 'Sound alerts', checked: intel.soundEnabled },
+                { id: 'tray-start-minimized', icon: TRAY_ICONS.startMin, label: 'Start minimized', checked: intel.startMinimized },
+                { id: 'tray-keep-tray', icon: TRAY_ICONS.keepTray, label: 'Keep in tray', checked: intel.minimizeToTray }
+            ]
+        },
+        {
+            title: 'MAINTENANCE',
+            items: [
+                { id: 'tray-backup-now', icon: TRAY_ICONS.backupNow, label: 'Backup now' },
+                { id: 'tray-open-backups', icon: TRAY_ICONS.folder, label: 'Backup folder' },
+                { id: 'tray-open-logs', icon: TRAY_ICONS.logs, label: 'Logs folder' }
+            ]
+        },
+        {
+            title: 'APP',
+            items: [
+                { id: 'tray-quit', icon: TRAY_ICONS.quit, label: 'Quit' }
+            ]
+        }
+    ];
+
+    const rowsMarkup = sections
+        .map(section => `
+            <div class="section">
+                <div class="section-title">${section.title}</div>
+                ${section.items.map(item => `
+                    <button class="item ${item.checked ? 'checked' : ''}" data-id="${item.id}">
+                        <span class="left">
+                            <span class="icon">${item.icon}</span>
+                            <span class="text">
+                                <span class="primary">${item.label}</span>
+                                ${item.detail ? `<span class="detail">${item.detail}</span>` : ''}
+                            </span>
+                        </span>
+                        ${item.checked
+                            ? `<span class="tick"><img src="${tickDataUrl || `file://${tickPath.replace(/\\\\/g, '/')}`}" alt="checked"></span>`
+                            : '<span class="tick spacer"></span>'}
+                    </button>
+                `).join('')}
+            </div>
+        `).join('');
+
+    const html = `
+    <!doctype html>
+    <html>
+    <head>
+      <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+        :root {
+          --bg: #111418f2;
+          --card: #181b21;
+          --text: #e9ebf0;
+          --muted: #9aa2b1;
+          --border: #2c3240;
+          --accent: #6db1ff;
+        }
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          padding: 8px 6px;
+          background: transparent;
+          font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+          color: var(--text);
+          user-select: none;
+          overflow: hidden;
+        }
+        .panel {
+          width: 100%;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+          padding: 8px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          overflow: hidden;
+        }
+        .section {
+          background: var(--card);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 6px;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+        }
+        .section + .section { margin-top: 2px; }
+        .section-title {
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          color: var(--muted);
+          margin: 2px 4px 6px;
+        }
+        .item {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 8px;
+          border: 0;
+          background: transparent;
+          color: var(--text);
+          border-radius: 6px;
+          cursor: pointer;
+          transition: background 120ms ease, transform 120ms ease;
+        }
+        .item:hover { background: rgba(255,255,255,0.06); transform: translateY(-1px); }
+        .item:active { background: rgba(255,255,255,0.08); transform: translateY(0); }
+        .item .left { display: inline-flex; gap: 10px; align-items: center; }
+        .icon { width: 18px; text-align: center; }
+        .text { display: flex; flex-direction: column; align-items: flex-start; }
+        .primary { font-size: 13px; }
+        .detail { font-size: 11px; color: var(--muted); }
+        .tick { width: 18px; height: 18px; display: flex; align-items: center; justify-content: flex-end; }
+        .tick img { width: 14px; height: 14px; display: block; }
+        .tick.spacer { visibility: hidden; }
+      </style>
+    </head>
+    <body>
+      <div class="panel">
+        ${rowsMarkup}
+      </div>
+      <script>
+        const { ipcRenderer } = require('electron');
+        window.addEventListener('mousedown', (e) => {
+          if (!document.querySelector('.panel').contains(e.target)) {
+            ipcRenderer.send('tray-menu-close');
+          }
+        });
+        document.querySelectorAll('.item').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-id');
+            ipcRenderer.send('tray-menu-action', id);
+          });
+        });
+        const panel = document.querySelector('.panel');
+        let hoverTimer = null;
+        panel.addEventListener('mouseenter', () => {
+          if (hoverTimer) clearTimeout(hoverTimer);
+        });
+        panel.addEventListener('mouseleave', () => {
+          hoverTimer = setTimeout(() => {
+            ipcRenderer.send('tray-menu-close');
+          }, 150);
+        });
+        window.addEventListener('blur', () => ipcRenderer.send('tray-menu-close'));
+        requestAnimationFrame(() => {
+          const desired = Math.ceil(panel.getBoundingClientRect().height + 12);
+          ipcRenderer.send('tray-menu-resize', { height: desired });
+        });
+      </script>
+    </body>
+    </html>
+    `;
+
+    trayMenuWindow = new BrowserWindow({
+        width,
+        height,
+        x,
+        y,
+        frame: false,
+        transparent: true,
+        resizable: false,
+        movable: false,
+        show: false,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        focusable: true,
+        backgroundColor: '#00000000',
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            sandbox: false
+        }
+    });
+
+    trayMenuWindow.once('ready-to-show', () => {
+        if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+        trayMenuWindow.setAlwaysOnTop(true, 'pop-up-menu');
+        trayMenuWindow.show();
+        trayMenuWindow.focus();
+        trayMenuOpen = true;
+        // Keep popover alive while menu is open
+        if (trayPopoverWindow && !trayPopoverWindow.isDestroyed()) {
+            trayPopoverWindow.showInactive();
+            clearTimeout(trayPopoverHideTimer);
+        }
+    });
+
+    trayMenuWindow.on('blur', () => closeTrayMenu());
+    trayMenuWindow.on('closed', () => {
+        trayMenuWindow = null;
+    });
+
+    trayMenuWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 }
 
 function wireTrayPopover() {
@@ -1247,6 +1785,9 @@ function wireTrayPopover() {
 
 function showTrayPopover(intel) {
     clearTimeout(trayPopoverHideTimer);
+    if (trayMenuOpen && trayPopoverWindow && !trayPopoverWindow.isDestroyed()) {
+        trayPopoverWindow.showInactive();
+    }
 
     const content = buildTrayPopoverContent(intel);
     // Ultra-compact dimensions - no cards, minimal design
@@ -1650,8 +2191,9 @@ function buildTrayPopoverContent(intel) {
     return `data:text/html;charset=UTF-8,${encodeURIComponent(markup)}`;
 }
 
-function scheduleHideTrayPopover(delayMs = 300) {
+function scheduleHideTrayPopover(delayMs = 300, force = false) {
     clearTimeout(trayPopoverHideTimer);
+    if (trayMenuOpen && !force) return;
     trayPopoverHideTimer = setTimeout(() => {
         if (trayPopoverWindow && !trayPopoverWindow.isDestroyed()) {
             trayPopoverWindow.hide();
@@ -2100,6 +2642,32 @@ ipcMain.handle('restore-backup', (event, backupPath) => {
     return restoreBackup(backupPath);
 });
 
+ipcMain.handle('resolve-cloud-path', (_event, payload) => {
+    const provider = (payload && payload.provider) || payload || 'google-drive';
+    const customPath = (payload && payload.path) || '';
+    const resolution = ensureCloudBackupPath(provider, customPath);
+    return {
+        provider,
+        label: getCloudProviderLabel(provider),
+        ok: resolution.ok,
+        reason: resolution.reason,
+        path: resolution.path,
+        basePath: resolution.basePath,
+        usedDefault: resolution.usedDefault,
+        candidatesTried: getCloudCandidates(provider)
+    };
+});
+
+ipcMain.handle('validate-cloud-path', (_event, payload) => {
+    const provider = (payload && payload.provider) || payload || 'google-drive';
+    const customPath = (payload && payload.path) || '';
+    const result = validateCloudPath(provider, customPath);
+    return {
+        ...result,
+        label: getCloudProviderLabel(provider)
+    };
+});
+
 ipcMain.handle('export-targets', async () => {
     const result = await dialog.showSaveDialog(mainWindow, {
         title: 'Export Targets',
@@ -2307,6 +2875,24 @@ ipcMain.handle('set-sidebar-width', (event, width) => {
 // Tray/status updates from renderer
 ipcMain.on('set-tray-status', (event, status) => {
     setTrayStatus(status || {});
+});
+
+ipcMain.on('tray-menu-action', (_event, id) => {
+    handleTrayMenuAction(id);
+});
+
+ipcMain.on('tray-menu-close', () => {
+    closeTrayMenu();
+});
+
+ipcMain.on('tray-menu-resize', (_event, { height }) => {
+    if (!trayMenuWindow || trayMenuWindow.isDestroyed()) return;
+    const safeHeight = Math.max(320, Math.round(height || 0));
+    const width = trayMenuWindow.getBounds().width;
+    const bounds = lastTrayBounds || tray.getBounds();
+    const workArea = lastTrayWorkArea || screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y }).workArea;
+    const { x, y } = computeMenuPosition(bounds, workArea, width, Math.min(safeHeight, workArea.height - 8));
+    trayMenuWindow.setBounds({ x, y, width, height: Math.min(safeHeight, workArea.height - 8) });
 });
 
 // ============================================================================

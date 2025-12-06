@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     createBackup: (options) => ipcRenderer.invoke('create-backup', options || {}),
     listBackups: () => ipcRenderer.invoke('list-backups'),
     restoreBackup: (path) => ipcRenderer.invoke('restore-backup', path),
+    resolveCloudPath: (provider, cloudPath = '') => ipcRenderer.invoke('resolve-cloud-path', { provider, path: cloudPath }),
+    validateCloudPath: (provider, cloudPath = '') => ipcRenderer.invoke('validate-cloud-path', { provider, path: cloudPath }),
     exportTargets: () => ipcRenderer.invoke('export-targets'),
     importTargets: () => ipcRenderer.invoke('import-targets'),
 

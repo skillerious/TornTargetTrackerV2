@@ -1087,7 +1087,8 @@
                             <div class="setting-item cloud-backup-row">
                                 <div class="setting-info">
                                     <div class="setting-label">Cloud Backup</div>
-                                    <div class="setting-description">Copy backups into a synced Google Drive or Dropbox folder.</div>
+                                    <div class="setting-description">Copy backups into a synced Google Drive, Dropbox, OneDrive, iCloud, Box, MEGA, or any custom folder.</div>
+                                    <div class="setting-description" id="cloud-provider-hint">Auto-detects common sync folders and nests backups safely.</div>
                                     <div class="setting-path" id="cloud-backup-path">No folder selected</div>
                                 </div>
                                 <div class="setting-control cloud-backup-controls">
@@ -1098,10 +1099,19 @@
                                     <select id="setting-cloud-provider" class="setting-input setting-select">
                                         <option value="google-drive">Google Drive</option>
                                         <option value="dropbox">Dropbox</option>
+                                        <option value="onedrive">OneDrive</option>
+                                        <option value="icloud-drive">iCloud Drive</option>
+                                        <option value="box">Box</option>
+                                        <option value="mega">MEGA</option>
+                                        <option value="custom-folder">Custom Folder</option>
                                     </select>
                                     <button class="action-btn ghost" id="btn-cloud-path">
                                         <svg viewBox="0 0 24 24"><path fill="currentColor" d="M10 17h4v-3h3l-5-5-5 5h3z"/><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>
                                         Choose Folder
+                                    </button>
+                                    <button class="action-btn ghost" id="btn-cloud-detect">
+                                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 6a6 6 0 1 1 0 12 6 6 0 0 1 0-12zm0 2a4 4 0 0 0-3.95 3.4l1.74-.7a2 2 0 0 1 2.21.44l1.59 1.59 2.53-1.26a4 4 0 0 0-4.12-3.47zM8 14.65a4 4 0 0 0 7.15.56l-2.68 1.34a2 2 0 0 1-2.4-.36L8 14.65z"/></svg>
+                                        Auto-detect
                                     </button>
                                 </div>
                             </div>
