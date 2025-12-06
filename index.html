@@ -66,7 +66,26 @@
                 </div>
                 <div class="activity-spacer"></div>
                 <div class="activity-item" id="connection-status" title="Connection Status">
-                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                    <svg viewBox="0 0 32 32" class="wifi-icon" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="wifi-grad-1" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" class="grad-start-1"/>
+                                <stop offset="100%" class="grad-end-1"/>
+                            </linearGradient>
+                            <linearGradient id="wifi-grad-2" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" class="grad-start-2"/>
+                                <stop offset="100%" class="grad-end-2"/>
+                            </linearGradient>
+                            <linearGradient id="wifi-grad-3" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" class="grad-start-3"/>
+                                <stop offset="100%" class="grad-end-3"/>
+                            </linearGradient>
+                        </defs>
+                        <circle cx="16" cy="26" r="2" fill="url(#wifi-grad-1)" class="wifi-dot"/>
+                        <path d="M11 22c1.4-1.4 3.2-2.2 5-2.2s3.6 0.8 5 2.2" stroke="url(#wifi-grad-1)" stroke-width="2.5" fill="none" stroke-linecap="round" class="wifi-curve wifi-curve-1" data-level="1"/>
+                        <path d="M7 18c2.4-2.4 5.6-3.8 9-3.8s6.6 1.4 9 3.8" stroke="url(#wifi-grad-2)" stroke-width="2.5" fill="none" stroke-linecap="round" class="wifi-curve wifi-curve-2" data-level="2"/>
+                        <path d="M3 14c3.5-3.5 8.2-5.5 13-5.5s9.5 2 13 5.5" stroke="url(#wifi-grad-3)" stroke-width="2.5" fill="none" stroke-linecap="round" class="wifi-curve wifi-curve-3" data-level="3"/>
+                    </svg>
                 </div>
                 <div class="activity-item" id="refresh-all-btn" title="Refresh All (Ctrl+R)">
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
@@ -225,6 +244,7 @@
                                                 <span class="chip" id="detail-level-chip">Lv. 0</span>
                                                 <span class="chip chip-faction" id="detail-faction-chip">No faction</span>
                                                 <span class="chip chip-status-chip" id="detail-status-chip">Status</span>
+                                                <span class="chip chip-difficulty" id="detail-difficulty-chip">Difficulty</span>
                                                 <span class="chip chip-muted" id="detail-updated-chip">Updated --</span>
                                             </div>
                                         </div>
@@ -279,6 +299,10 @@
                                                 <span class="detail-label">Faction</span>
                                                 <span class="detail-value" id="detail-faction">-</span>
                                             </div>
+                                            <div class="detail-row" data-detail-row="tags">
+                                                <span class="detail-label">Tags</span>
+                                                <div class="detail-value tag-list" id="detail-tags">-</div>
+                                            </div>
                                             <div class="detail-row" data-detail-row="status">
                                                 <span class="detail-label">Status</span>
                                                 <span class="detail-value" id="detail-status-desc">-</span>
@@ -295,6 +319,51 @@
                                             <span class="detail-label">Added</span>
                                             <span class="detail-value" id="detail-added">-</span>
                                         </div>
+                                    </div>
+                                </div>
+
+                                <div class="detail-section" id="detail-intel-section">
+                                    <div class="detail-section-header">
+                                        <h3>
+                                            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16a8 8 0 0 1 0 16zm-1-9H7v2h4v4h2v-4h4v-2h-4V7h-2v4z"/></svg>
+                                            Target Intelligence
+                                        </h3>
+                                        <div class="intel-actions">
+                                            <span class="intel-status" id="detail-intel-status">No intel</span>
+                                            <button class="icon-btn" id="btn-refresh-intel" title="Refresh intelligence">
+                                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 6V3L8 7l4 4V8c2.76 0 5 2.24 5 5a5 5 0 0 1-8.54 3.54l-1.42 1.42A7 7 0 0 0 19 13c0-3.86-3.14-7-7-7zm-5 7a5 5 0 0 1 8.54-3.54l1.42-1.42A7 7 0 0 0 5 13c0 3.86 3.14 7 7 7v3l4-4-4-4v3c-2.76 0-5-2.24-5-5z"/></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="intel-message" id="detail-intel-message">Configure TornStats to see estimated battle stats.</p>
+                                    <div class="intel-grid">
+                                        <div class="intel-stat">
+                                            <span class="intel-label">Strength</span>
+                                            <span class="intel-value" id="detail-intel-str">-</span>
+                                        </div>
+                                        <div class="intel-stat">
+                                            <span class="intel-label">Defense</span>
+                                            <span class="intel-value" id="detail-intel-def">-</span>
+                                        </div>
+                                        <div class="intel-stat">
+                                            <span class="intel-label">Speed</span>
+                                            <span class="intel-value" id="detail-intel-spd">-</span>
+                                        </div>
+                                        <div class="intel-stat">
+                                            <span class="intel-label">Dexterity</span>
+                                            <span class="intel-value" id="detail-intel-dex">-</span>
+                                        </div>
+                                        <div class="intel-stat total">
+                                            <span class="intel-label">Total</span>
+                                            <span class="intel-value" id="detail-intel-total">-</span>
+                                        </div>
+                                    </div>
+                                    <div class="intel-meta">
+                                        <span class="intel-source" id="detail-intel-source"></span>
+                                        <span class="intel-updated">
+                                            <span id="detail-intel-updated">-</span>
+                                            <span class="intel-freshness" id="detail-intel-freshness"></span>
+                                        </span>
                                     </div>
                                 </div>
 
@@ -366,6 +435,11 @@
                                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H4.99c-1.11 0-1.98.89-1.98 2L3 19c0 1.1.88 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.11-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z"/></svg>
                                             Notes
                                         </h3>
+                                        <div class="notes-templates">
+                                            <button class="template-chip" type="button" data-notes-template="stealth">Stealth opener</button>
+                                            <button class="template-chip" type="button" data-notes-template="breaker">Armor breaker</button>
+                                            <button class="template-chip" type="button" data-notes-template="chain">Chain finisher</button>
+                                        </div>
                                         <textarea class="detail-textarea" id="detail-notes" placeholder="Add notes about this target..."></textarea>
                                     </div>
                                 </div>
@@ -655,6 +729,15 @@
                                     <div class="api-key-status" id="tornstats-key-status"></div>
                                 </div>
                             </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-label">Your Level</div>
+                                    <div class="setting-description">Used to rate target difficulty. Auto-filled when you validate your API key.</div>
+                                </div>
+                                <div class="setting-control">
+                                    <input type="number" class="setting-input setting-number" id="setting-player-level" min="1" placeholder="Enter your level">
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Refresh Settings -->
@@ -689,6 +772,16 @@
                                 </div>
                                 <div class="setting-control">
                                     <input type="number" class="setting-input setting-number" id="setting-concurrent" min="1" max="5" value="3">
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-label">API Rate Limit</div>
+                                    <div class="setting-description">Requests per minute used for Torn API calls (max 99).</div>
+                                </div>
+                                <div class="setting-control">
+                                    <input type="number" class="setting-input setting-number" id="setting-api-rate-limit" min="1" max="99" value="80">
+                                    <span class="setting-unit">req/min</span>
                                 </div>
                             </div>
                         </div>
@@ -901,6 +994,18 @@
                                     </label>
                                 </div>
                             </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-label">Show Onboarding on Launch</div>
+                                    <div class="setting-description">Automatically open the interactive launch guide when the app starts.</div>
+                                </div>
+                                <div class="setting-control">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="setting-show-onboarding">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Window & Tray -->
@@ -955,6 +1060,49 @@
                                 <div class="setting-control">
                                     <input type="number" class="setting-input setting-number" id="setting-backup-interval" min="1" max="30" value="7">
                                     <span class="setting-unit">days</span>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-label">Backup Retention</div>
+                                    <div class="setting-description">Maximum number of backup files to keep (3-50).</div>
+                                </div>
+                                <div class="setting-control">
+                                    <input type="number" class="setting-input setting-number" id="setting-backup-retention" min="3" max="50" value="10">
+                                    <span class="setting-unit">files</span>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-label">Pre-change Backups</div>
+                                    <div class="setting-description">Create a backup automatically before bulk delete and imports.</div>
+                                </div>
+                                <div class="setting-control">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="setting-backup-preop">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="setting-item cloud-backup-row">
+                                <div class="setting-info">
+                                    <div class="setting-label">Cloud Backup</div>
+                                    <div class="setting-description">Copy backups into a synced Google Drive or Dropbox folder.</div>
+                                    <div class="setting-path" id="cloud-backup-path">No folder selected</div>
+                                </div>
+                                <div class="setting-control cloud-backup-controls">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="setting-cloud-backup">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <select id="setting-cloud-provider" class="setting-input setting-select">
+                                        <option value="google-drive">Google Drive</option>
+                                        <option value="dropbox">Dropbox</option>
+                                    </select>
+                                    <button class="action-btn ghost" id="btn-cloud-path">
+                                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M10 17h4v-3h3l-5-5-5 5h3z"/><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>
+                                        Choose Folder
+                                    </button>
                                 </div>
                             </div>
                             <div class="setting-item">
@@ -1037,9 +1185,38 @@
              ================================================================ -->
         <div id="status-bar">
             <div class="status-left">
-                <div class="status-item" id="status-connection">
-                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                    <span>Connected</span>
+                <div class="status-item" id="status-connection" title="Live connection health">
+                    <svg viewBox="0 0 32 32" class="wifi-icon" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="wifi-stat-grad-1" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" class="grad-start-1"/>
+                                <stop offset="100%" class="grad-end-1"/>
+                            </linearGradient>
+                            <linearGradient id="wifi-stat-grad-2" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" class="grad-start-2"/>
+                                <stop offset="100%" class="grad-end-2"/>
+                            </linearGradient>
+                            <linearGradient id="wifi-stat-grad-3" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" class="grad-start-3"/>
+                                <stop offset="100%" class="grad-end-3"/>
+                            </linearGradient>
+                        </defs>
+                        <circle cx="16" cy="26" r="2" fill="url(#wifi-stat-grad-1)" class="wifi-dot"/>
+                        <path d="M11 22c1.4-1.4 3.2-2.2 5-2.2s3.6 0.8 5 2.2" stroke="url(#wifi-stat-grad-1)" stroke-width="2.5" fill="none" stroke-linecap="round" class="wifi-curve wifi-curve-1" data-level="1"/>
+                        <path d="M7 18c2.4-2.4 5.6-3.8 9-3.8s6.6 1.4 9 3.8" stroke="url(#wifi-stat-grad-2)" stroke-width="2.5" fill="none" stroke-linecap="round" class="wifi-curve wifi-curve-2" data-level="2"/>
+                        <path d="M3 14c3.5-3.5 8.2-5.5 13-5.5s9.5 2 13 5.5" stroke="url(#wifi-stat-grad-3)" stroke-width="2.5" fill="none" stroke-linecap="round" class="wifi-curve wifi-curve-3" data-level="3"/>
+                    </svg>
+                    <span id="status-connection-text">Connected</span>
+                    <div class="status-signal-badges" id="status-signal-badges">
+                        <span data-signal="internet" title="Internet">NET</span>
+                        <span data-signal="api" title="Torn API">API</span>
+                        <span data-signal="stats" title="TornStats API">STS</span>
+                    </div>
+                </div>
+                <div class="status-item" id="status-next-refresh" title="Auto refresh status">
+                    <svg viewBox="0 0 24 24" class="status-inline-icon"><path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                    <span id="status-next-refresh-text">Calculating...</span>
+                    <span class="status-chip subtle" id="status-refresh-mode-chip">Auto</span>
                 </div>
                 <div class="status-item refresh-progress" id="status-refresh">
                     <div class="spinner"></div>
@@ -1092,6 +1269,18 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Command Palette -->
+    <div class="command-palette-overlay" id="command-palette-overlay">
+        <div class="command-palette" role="dialog" aria-modal="true" aria-label="Command Palette">
+            <div class="command-palette-header">
+                <input type="text" id="command-palette-input" placeholder="Type a command or search actions..." autocomplete="off" spellcheck="false">
+                <span class="command-palette-hint">Ctrl+Shift+P</span>
+            </div>
+            <div class="command-palette-list" id="command-palette-list"></div>
+            <div class="command-palette-empty" id="command-palette-empty">No commands match that search.</div>
         </div>
     </div>
 
@@ -1381,6 +1570,15 @@ https://www.torn.com/loader.php?sid=attack&user2ID=345678
 
     <!-- Target Context Menu -->
     <div class="context-menu" id="context-menu">
+        <div class="context-menu-item" data-action="select-all">
+            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 5h16v2H4V5zm0 6h16v2H4v-2zm0 6h16v2H4v-2z"/></svg>
+            <span>Select All</span>
+        </div>
+        <div class="context-menu-item" data-action="clear-selection">
+            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zm3.46-8.12L12 13.42l2.54-2.54 1.41 1.42L13.42 14.83l2.53 2.53-1.41 1.42L12 16.25l-2.54 2.53-1.41-1.42 2.53-2.53-2.53-2.54 1.41-1.41zM15.5 4l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            <span>Clear Selection</span>
+        </div>
+        <div class="context-menu-divider"></div>
         <div class="context-menu-item" data-action="attack">
             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
             <span>Attack</span>
@@ -1406,6 +1604,10 @@ https://www.torn.com/loader.php?sid=attack&user2ID=345678
             <div class="context-submenu" id="group-submenu">
                 <!-- Groups populated dynamically -->
             </div>
+        </div>
+        <div class="context-menu-item" data-action="add-tags">
+            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 17h3l7-7-3-3-7 7v3zm9.7-8.3 1.3-1.3c.39-.39.39-1.02 0-1.41L16.01 3.3c-.39-.39-1.02-.39-1.41 0l-1.29 1.29 3 3zM5 19h4v2H5c-1.1 0-2-.9-2-2v-4h2v4z"/></svg>
+            <span>Add Tags to Selection</span>
         </div>
         <div class="context-menu-item" data-action="remove-from-group">
             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-1 12H5c-.55 0-1-.45-1-1V9c0-.55.45-1 1-1h14c.55 0 1 .45 1 1v8c0 .55-.45 1-1 1zm-7-8l-4 4h2.5v3h3v-3H16z"/></svg>
@@ -1472,6 +1674,181 @@ https://www.torn.com/loader.php?sid=attack&user2ID=345678
         </div>
     </div>
 
+    <!-- Onboarding Experience -->
+    <div class="onboarding-overlay" id="onboarding-overlay" aria-hidden="true">
+        <div class="onboarding-stars"></div>
+        <div class="onboarding-orbit-lines"></div>
+        <div class="onboarding-dialog">
+            <button class="onboarding-close" id="onboarding-close" aria-label="Close onboarding">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+            <div class="onboarding-hero">
+                <div class="onboarding-kicker">Launch Control</div>
+                <h2>Welcome to Torn Target Tracker</h2>
+                <p class="onboarding-subtitle">A guided, cinematic way to get your attack console online with zero guesswork. Follow the steps, watch the ambient cues, and you'll be tracking in seconds.</p>
+                <div class="onboarding-badges">
+                    <span class="badge">Real-time Intel</span>
+                    <span class="badge badge-alt">Attack Windows</span>
+                    <span class="badge">Live Pulse</span>
+                </div>
+                <div class="onboarding-orbital">
+                    <div class="orbital-core">
+                        <img src="assets/logomain.png" alt="Target Tracker Logo">
+                        <div class="orbital-glow"></div>
+                    </div>
+                    <div class="orbital-ring ring-a"></div>
+                    <div class="orbital-ring ring-b"></div>
+                    <div class="orbital-ring ring-c"></div>
+                    <div class="orbital-pip pip-1"></div>
+                    <div class="orbital-pip pip-2"></div>
+                    <div class="orbital-pip pip-3"></div>
+                </div>
+            </div>
+            <div class="onboarding-body">
+                <div class="onboarding-smart">
+                    <div class="smart-header">
+                        <div class="smart-dot"></div>
+                        <div>
+                            <div class="smart-kicker">Guided Setup</div>
+                            <div class="smart-title" id="onboarding-smart-title">Next best step ready</div>
+                        </div>
+                    </div>
+                    <div class="smart-copy" id="onboarding-smart-copy">We'll route you to the highest-impact action so you can finish setup without thinking.</div>
+                    <div class="smart-status-grid">
+                        <div class="smart-status" id="onboarding-status-key">
+                            <span class="status-label">API Key</span>
+                            <span class="status-value">Pending</span>
+                        </div>
+                        <div class="smart-status" id="onboarding-status-targets">
+                            <span class="status-label">Targets</span>
+                            <span class="status-value">0 added</span>
+                        </div>
+                        <div class="smart-status" id="onboarding-status-alerts">
+                            <span class="status-label">Alerts</span>
+                            <span class="status-value">Disabled</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="onboarding-tabs" id="onboarding-tabs">
+                    <button class="onboarding-tab active" data-onboarding-step="0">01 - Connect</button>
+                    <button class="onboarding-tab" data-onboarding-step="1">02 - Add Targets</button>
+                    <button class="onboarding-tab" data-onboarding-step="2">03 - Stay Alert</button>
+                </div>
+                <div class="onboarding-panels">
+                    <div class="onboarding-step active" data-onboarding-step="0">
+                        <div class="step-header">
+                            <div class="step-eyebrow">Foundation</div>
+                            <h3>Secure your API keys</h3>
+                            <p>Drop in your Torn and TornStats keys to light up live statuses, loot timers, and attack-ready intel without leaving the cockpit.</p>
+                        </div>
+                        <div class="step-actions">
+                            <button class="chip-btn" data-onboarding-action="open-settings">
+                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a6.97 6.97 0 0 0-1.63-.94L14.5 2h-5l-.25 2.24a6.97 6.97 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.21 8.16a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.3.64.22l2.39-.96c.5.38 1.05.7 1.63.94L9.5 22h5l.25-2.24c.58-.24 1.13-.56 1.63-.94l2.39.96c.24.08.51 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>
+                                Open Settings
+                            </button>
+                            <button class="chip-btn ghost" data-onboarding-action="validate-api">
+                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                Validate Key
+                            </button>
+                        </div>
+                        <div class="step-metrics">
+                            <div class="metric-card">
+                                <span class="metric-label">Connection</span>
+                                <span class="metric-value" id="onboarding-connection-status">Pending</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-label">Latency</span>
+                                <span class="metric-value" id="onboarding-latency">-- ms</span>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-label">Rate</span>
+                                <span class="metric-value" id="onboarding-rate">--/min</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="onboarding-step" data-onboarding-step="1">
+                        <div class="step-header">
+                            <div class="step-eyebrow">Population</div>
+                            <h3>Add your first targets</h3>
+                            <p>Spin up your watchlist with a single ID or drop in a bulk file. The grid lights up instantly with live statuses and attack windows.</p>
+                        </div>
+                        <div class="step-actions">
+                            <button class="chip-btn" data-onboarding-action="add-target">
+                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
+                                Add Target
+                            </button>
+                            <button class="chip-btn ghost" data-onboarding-action="bulk-add">
+                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
+                                Bulk Import
+                            </button>
+                        </div>
+                        <div class="step-grid">
+                            <div class="grid-card">
+                                <span class="grid-label">Active Targets</span>
+                                <span class="grid-value" id="onboarding-target-count">0</span>
+                            </div>
+                            <div class="grid-card">
+                                <span class="grid-label">Attackable</span>
+                                <span class="grid-value" id="onboarding-attackable-count">0</span>
+                            </div>
+                            <div class="grid-card">
+                                <span class="grid-label">Groups Ready</span>
+                                <span class="grid-value" id="onboarding-group-count">1</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="onboarding-step" data-onboarding-step="2">
+                        <div class="step-header">
+                            <div class="step-eyebrow">Control</div>
+                            <h3>Stay ready with alerts</h3>
+                            <p>Enable notifications, watch targets, and keep the radar open. Every status change flows through to toasts, badges, and tray cues.</p>
+                        </div>
+                        <div class="step-actions">
+                            <button class="chip-btn" data-onboarding-action="enable-notifications">
+                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 22c1.1 0 2-.9 2-2h-4a2 2 0 0 0 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4a1.5 1.5 0 1 0-3 0v.68C7.64 5.36 6 7.92 6 11v5l-1.8 1.8a.5.5 0 0 0 .35.85h13c.45 0 .67-.54.35-.85L18 16z"/></svg>
+                                Enable Notifications
+                            </button>
+                            <button class="chip-btn ghost" data-onboarding-action="open-loot">
+                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2 2 7l10 5 10-5-10-5zm0 7.92L5.16 7 12 4.08 18.84 7 12 9.92zM2 9v6l10 5 10-5V9l-10 5-10-5z"/></svg>
+                                See Loot Timer
+                            </button>
+                        </div>
+                        <div class="step-checklist">
+                            <div class="check-row">
+                                <span class="check-dot"></span>
+                                <span>Toast and sound alerts are <strong id="onboarding-notify-status">disabled</strong></span>
+                            </div>
+                            <div class="check-row">
+                                <span class="check-dot"></span>
+                                <span>Tray icon mirrors live attackable count</span>
+                            </div>
+                            <div class="check-row">
+                                <span class="check-dot"></span>
+                                <span>Connection monitor keeps API health in view</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="onboarding-footer">
+                    <label class="onboarding-checkbox">
+                        <input type="checkbox" id="onboarding-hide-toggle">
+                        <span>Don't show this on startup</span>
+                    </label>
+                    <div class="onboarding-progress">
+                        <div class="progress-bar" id="onboarding-progress-bar"></div>
+                    </div>
+                    <div class="onboarding-actions">
+                        <button class="ghost-btn" id="onboarding-skip">Skip</button>
+                        <div class="onboarding-nav">
+                            <button class="ghost-btn" id="onboarding-prev" disabled>Back</button>
+                            <button class="primary-btn" id="onboarding-next">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Premium Alert Dialog -->
     <div class="premium-alert-overlay" id="premium-alert-overlay">
         <div class="premium-alert-dialog">
@@ -1496,6 +1873,119 @@ https://www.torn.com/loader.php?sid=attack&user2ID=345678
         <div class="loading-spinner">
             <div class="spinner large"></div>
             <span>Loading...</span>
+        </div>
+    </div>
+
+    <!-- Connection Status Dialog -->
+    <div class="connection-dialog-overlay" id="connection-dialog">
+        <div class="connection-dialog">
+            <div class="connection-dialog-header">
+                <h3>Connection Status</h3>
+                <button class="connection-dialog-close" id="close-connection-dialog">
+                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>
+            <div class="connection-dialog-body">
+                <!-- Torn API Connection -->
+                <div class="connection-item" id="conn-torn-api">
+                    <div class="connection-visual">
+                        <div class="connection-node">
+                            <div class="connection-node-inner"></div>
+                            <div class="connection-pulse"></div>
+                            <div class="connection-pulse delay-1"></div>
+                            <div class="connection-pulse delay-2"></div>
+                        </div>
+                        <div class="connection-line">
+                            <div class="connection-flow"></div>
+                            <div class="connection-flow delay-1"></div>
+                            <div class="connection-flow delay-2"></div>
+                        </div>
+                        <div class="connection-endpoint">
+                            <svg viewBox="0 0 24 24">
+                                <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="connection-info">
+                        <div class="connection-title">Torn API</div>
+                        <div class="connection-status">Checking...</div>
+                        <div class="connection-details">
+                            <div class="connection-detail" id="api-rate">
+                                <span class="detail-label">Rate:</span>
+                                <span class="detail-value">--/min</span>
+                            </div>
+                            <div class="connection-detail" id="api-latency">
+                                <span class="detail-label">Latency:</span>
+                                <span class="detail-value">-- ms</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Internet Connection -->
+                <div class="connection-item" id="conn-internet">
+                    <div class="connection-visual">
+                        <div class="connection-node">
+                            <div class="connection-node-inner"></div>
+                            <div class="connection-pulse"></div>
+                            <div class="connection-pulse delay-1"></div>
+                            <div class="connection-pulse delay-2"></div>
+                        </div>
+                        <div class="connection-line">
+                            <div class="connection-flow"></div>
+                            <div class="connection-flow delay-1"></div>
+                            <div class="connection-flow delay-2"></div>
+                        </div>
+                        <div class="connection-endpoint">
+                            <svg viewBox="0 0 24 24">
+                                <path fill="currentColor" d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="connection-info">
+                        <div class="connection-title">Internet</div>
+                        <div class="connection-status">Checking...</div>
+                        <div class="connection-details">
+                            <div class="connection-detail" id="net-status">
+                                <span class="detail-label">Status:</span>
+                                <span class="detail-value">Unknown</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TornStats API Connection -->
+                <div class="connection-item" id="conn-tornstats">
+                    <div class="connection-visual">
+                        <div class="connection-node">
+                            <div class="connection-node-inner"></div>
+                            <div class="connection-pulse"></div>
+                            <div class="connection-pulse delay-1"></div>
+                            <div class="connection-pulse delay-2"></div>
+                        </div>
+                        <div class="connection-line">
+                            <div class="connection-flow"></div>
+                            <div class="connection-flow delay-1"></div>
+                            <div class="connection-flow delay-2"></div>
+                        </div>
+                        <div class="connection-endpoint">
+                            <svg viewBox="0 0 24 24">
+                                <path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="connection-info">
+                        <div class="connection-title">TornStats API</div>
+                        <div class="connection-status">Checking...</div>
+                        <div class="connection-details">
+                            <div class="connection-detail" id="stats-last-fetch">
+                                <span class="detail-label">Last Fetch:</span>
+                                <span class="detail-value">Never</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

@@ -52,7 +52,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // ========================================================================
     // BACKUP & RESTORE
     // ========================================================================
-    createBackup: () => ipcRenderer.invoke('create-backup'),
+    createBackup: (options) => ipcRenderer.invoke('create-backup', options || {}),
     listBackups: () => ipcRenderer.invoke('list-backups'),
     restoreBackup: (path) => ipcRenderer.invoke('restore-backup', path),
     exportTargets: () => ipcRenderer.invoke('export-targets'),
@@ -81,11 +81,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // APP INFO
     // ========================================================================
     getAppInfo: () => ipcRenderer.invoke('get-app-info'),
+    openAppPath: (target) => ipcRenderer.invoke('open-app-path', target),
     getSidebarWidth: () => ipcRenderer.invoke('get-sidebar-width'),
     setSidebarWidth: (width) => ipcRenderer.invoke('set-sidebar-width', width),
+    chooseDirectory: () => ipcRenderer.invoke('choose-directory'),
 
     // Tray/status
     setTrayStatus: (status) => ipcRenderer.send('set-tray-status', status),
+
+    // ========================================================================
+    // CONNECTION DIALOG
+    // ========================================================================
+    checkInternetConnection: () => ipcRenderer.invoke('check-internet-connection'),
+    checkTornApiConnection: () => ipcRenderer.invoke('check-torn-api'),
+    checkTornStatsConnection: () => ipcRenderer.invoke('check-tornstats-api'),
+    openConnectionDialog: () => ipcRenderer.invoke('open-connection-dialog'),
 
     // ========================================================================
     // LOGGING
@@ -111,6 +121,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onMaximizeChange: (callback) => {
         ipcRenderer.on('maximize-change', (event, isMaximized) => callback(isMaximized));
         return () => ipcRenderer.removeListener('maximize-change', callback);
+    },
+
+    onConnectionCheckCompleted: (callback) => {
+        ipcRenderer.on('connection-check-completed', () => callback());
+        return () => ipcRenderer.removeListener('connection-check-completed', callback);
     }
 });
 

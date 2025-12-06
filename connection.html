@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connection Status</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+
+        :root {
+            --bg-base: #0d1117;
+            --bg-surface: #161b22;
+            --bg-overlay: #1c2128;
+            --bg-inset: #010409;
+            --border-default: #30363d;
+            --border-muted: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --green: #3fb950;
+            --green-emphasis: #238636;
+            --yellow: #d29922;
+            --yellow-emphasis: #9e6a03;
+            --red: #f85149;
+            --red-emphasis: #da3633;
+            --blue: #58a6ff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: transparent;
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+            padding: 0;
+        }
+
+        .dialog {
+            width: 500px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            animation: slideIn 0.25s ease-out;
+            overflow: hidden;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: var(--bg-overlay);
+            border-bottom: 1px solid var(--border-default);
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--bg-base);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .header-icon svg {
+            width: 20px;
+            height: 20px;
+            color: var(--blue);
+        }
+
+        .header-text h1 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .header-text p {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 1px;
+        }
+
+        .close-btn {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.12s ease;
+        }
+
+        .close-btn:hover {
+            background: var(--bg-base);
+            border-color: var(--border-default);
+            color: var(--text-primary);
+        }
+
+        .close-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Content */
+        .content {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Connection Card */
+        .card {
+            background: var(--bg-base);
+            border: 1px solid var(--border-muted);
+            border-radius: 8px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: border-color 0.15s ease;
+        }
+
+        .card:hover {
+            border-color: var(--border-default);
+        }
+
+        /* Connection Animation */
+        .connection-anim {
+            width: 120px;
+            height: 40px;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        /* Track */
+        .track {
+            position: absolute;
+            top: 50%;
+            left: 16px;
+            right: 16px;
+            height: 2px;
+            background: var(--border-muted);
+            transform: translateY(-50%);
+        }
+
+        /* Progress Bar */
+        .progress {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 0;
+            background: var(--green);
+            transition: width 0.4s ease, background 0.3s ease;
+        }
+
+        .card.connected .progress { width: 100%; background: var(--green); }
+        .card.checking .progress { width: 100%; background: var(--yellow); animation: progressPulse 1.5s ease-in-out infinite; }
+        .card.error .progress { width: 35%; background: var(--red); }
+
+        @keyframes progressPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Nodes */
+        .node {
+            position: absolute;
+            top: 50%;
+            width: 12px;
+            height: 12px;
+            transform: translateY(-50%);
+        }
+
+        .node-left { left: 10px; }
+        .node-right { right: 10px; }
+
+        .node-outer {
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--border-default);
+            border-radius: 50%;
+            background: var(--bg-surface);
+            position: relative;
+            transition: border-color 0.3s ease, background 0.3s ease;
+        }
+
+        .node-inner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: background 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        /* Node States */
+        .card.connected .node-outer {
+            border-color: var(--green);
+        }
+
+        .card.connected .node-inner {
+            background: var(--green);
+            box-shadow: 0 0 6px var(--green);
+        }
+
+        .card.checking .node-left .node-outer {
+            border-color: var(--yellow);
+            animation: nodeScale 0.8s ease-in-out infinite;
+        }
+
+        .card.checking .node-left .node-inner {
+            background: var(--yellow);
+        }
+
+        .card.checking .node-right .node-outer {
+            border-color: var(--border-default);
+        }
+
+        .card.error .node-left .node-outer {
+            border-color: var(--green);
+        }
+
+        .card.error .node-left .node-inner {
+            background: var(--green);
+        }
+
+        .card.error .node-right .node-outer {
+            border-color: var(--red);
+            background: var(--red);
+        }
+
+        .card.error .node-right .node-inner {
+            width: 6px;
+            height: 2px;
+            border-radius: 1px;
+            background: var(--bg-base);
+        }
+
+        @keyframes nodeScale {
+            0%, 100% { transform: translateY(-50%) scale(1); }
+            50% { transform: translateY(-50%) scale(1.2); }
+        }
+
+        /* Pulse Ring */
+        .pulse-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        .pulse-ring::before,
+        .pulse-ring::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 12px;
+            height: 12px;
+            border: 1px solid var(--green);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0;
+        }
+
+        /* Shift pulse to the service icon for perfect centering */
+        .pulse-ring::before,
+        .pulse-ring::after {
+            animation: none !important;
+            opacity: 0 !important;
+        }
+
+        .card.connected .node-right .pulse-ring::before {
+            animation: pulseExpand 2s ease-out infinite;
+        }
+
+        .card.connected .node-right .pulse-ring::after {
+            animation: pulseExpand 2s ease-out infinite 1s;
+        }
+
+        .card.checking .node-left .pulse-ring::before {
+            border-color: var(--yellow);
+            animation: pulseExpand 1s ease-out infinite;
+        }
+
+        @keyframes pulseExpand {
+            0% { width: 12px; height: 12px; opacity: 0.6; }
+            100% { width: 32px; height: 32px; opacity: 0; }
+        }
+
+        /* Data Particles */
+        .particles {
+            position: absolute;
+            top: 50%;
+            left: 16px;
+            right: 16px;
+            height: 2px;
+            transform: translateY(-50%);
+            overflow: hidden;
+        }
+
+        .particle {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0;
+        }
+
+        .card.connected .particle {
+            background: var(--green);
+            box-shadow: 0 0 4px var(--green);
+            animation: particleMove 1.8s linear infinite;
+        }
+
+        .card.connected .particle:nth-child(2) { animation-delay: 0.6s; }
+        .card.connected .particle:nth-child(3) { animation-delay: 1.2s; }
+
+        .card.checking .particle {
+            background: var(--yellow);
+            box-shadow: 0 0 4px var(--yellow);
+            animation: particleMove 1.2s linear infinite;
+        }
+
+        .card.checking .particle:nth-child(2) { animation-delay: 0.4s; }
+        .card.checking .particle:nth-child(3) { animation-delay: 0.8s; }
+
+        @keyframes particleMove {
+            0% { left: 0; opacity: 0; }
+            5% { opacity: 1; }
+            95% { opacity: 1; }
+            100% { left: calc(100% - 6px); opacity: 0; }
+        }
+
+        /* Service Icon */
+        .service-icon {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 26px;
+            height: 26px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            overflow: visible;
+        }
+
+        .service-icon svg {
+            width: 13px;
+            height: 13px;
+            color: var(--text-muted);
+            transition: color 0.3s ease;
+        }
+
+        .service-icon::before,
+        .service-icon::after {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border-radius: 9px;
+            border: 1px solid currentColor;
+            opacity: 0;
+            transform: scale(0.75);
+            pointer-events: none;
+        }
+
+        .card.connected .service-icon,
+        .card.connected .service-icon svg { color: var(--green); }
+        .card.connected .service-icon::before { animation: iconPulse 1.8s ease-out infinite; }
+        .card.connected .service-icon::after { animation: iconPulse 1.8s ease-out infinite 0.9s; }
+
+        .card.checking .service-icon,
+        .card.checking .service-icon svg { color: var(--yellow); }
+        .card.checking .service-icon svg { animation: iconSpin 1s linear infinite; }
+        .card.checking .service-icon::before { animation: iconPulse 1.35s ease-out infinite; }
+        .card.checking .service-icon::after { animation: iconPulse 1.35s ease-out infinite 0.675s; opacity: 0.65; }
+
+        .card.error .service-icon,
+        .card.error .service-icon svg { color: var(--red); }
+        .card.error .service-icon::before { animation: iconPulse 1.6s ease-out infinite; opacity: 0.4; }
+        .card.error .service-icon::after { display: none; }
+
+        @keyframes iconPulse {
+            0% { opacity: 0.35; transform: scale(0.75); }
+            100% { opacity: 0; transform: scale(1.35); }
+        }
+
+        @keyframes iconSpin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Info */
+        .info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .info-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+
+        .service-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .badge.connected { background: rgba(63,185,80,0.15); color: var(--green); }
+        .badge.checking { background: rgba(210,153,34,0.15); color: var(--yellow); }
+        .badge.error { background: rgba(248,81,73,0.15); color: var(--red); }
+
+        .badge-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .badge.checking .badge-dot {
+            animation: dotBlink 0.8s ease-in-out infinite;
+        }
+
+        @keyframes dotBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Metrics */
+        .metrics {
+            display: flex;
+            gap: 12px;
+        }
+
+        .metric {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .metric-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .metric-value {
+            font-size: 11px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            background: var(--bg-overlay);
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: var(--text-secondary);
+        }
+
+        .metric-value.good { color: var(--green); }
+        .metric-value.warn { color: var(--yellow); }
+        .metric-value.bad { color: var(--red); }
+
+        /* Footer */
+        .footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--bg-overlay);
+            border-top: 1px solid var(--border-default);
+        }
+
+        .footer-text {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .footer-text svg {
+            width: 13px;
+            height: 13px;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 12px;
+            background: var(--green-emphasis);
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .btn:hover {
+            background: var(--green);
+        }
+
+        .btn svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .btn.loading svg {
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="dialog">
+        <div class="header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="2"/>
+                        <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>
+                    </svg>
+                </div>
+                <div class="header-text">
+                    <h1>Connection Status</h1>
+                    <p>API and network diagnostics</p>
+                </div>
+            </div>
+            <button class="close-btn" onclick="closeDialog()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="content">
+            <!-- Torn API -->
+            <div class="card checking" id="tornApi">
+                <div class="connection-anim">
+                    <div class="track">
+                        <div class="progress"></div>
+                    </div>
+                    <div class="particles">
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                    </div>
+                    <div class="node node-left">
+                        <div class="node-outer">
+                            <div class="node-inner"></div>
+                        </div>
+                        <div class="pulse-ring"></div>
+                    </div>
+                    <div class="node node-right">
+                        <div class="node-outer">
+                            <div class="node-inner"></div>
+                        </div>
+                        <div class="pulse-ring"></div>
+                    </div>
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="info">
+                    <div class="info-header">
+                        <span class="service-name">Torn API</span>
+                        <span class="badge checking" id="tornApiStatus">
+                            <span class="badge-dot"></span>
+                            Checking
+                        </span>
+                    </div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Rate</span>
+                            <span class="metric-value" id="tornApiRate">--/min</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Latency</span>
+                            <span class="metric-value" id="tornApiLatency">-- ms</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Internet -->
+            <div class="card connected" id="internet">
+                <div class="connection-anim">
+                    <div class="track">
+                        <div class="progress"></div>
+                    </div>
+                    <div class="particles">
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                    </div>
+                    <div class="node node-left">
+                        <div class="node-outer">
+                            <div class="node-inner"></div>
+                        </div>
+                        <div class="pulse-ring"></div>
+                    </div>
+                    <div class="node node-right">
+                        <div class="node-outer">
+                            <div class="node-inner"></div>
+                        </div>
+                        <div class="pulse-ring"></div>
+                    </div>
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                            <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                            <circle cx="12" cy="20" r="1"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="info">
+                    <div class="info-header">
+                        <span class="service-name">Internet</span>
+                        <span class="badge connected" id="internetStatus">
+                            <span class="badge-dot"></span>
+                            Connected
+                        </span>
+                    </div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Status</span>
+                            <span class="metric-value good" id="internetValue">Online</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TornStats API -->
+            <div class="card error" id="tornStats">
+                <div class="connection-anim">
+                    <div class="track">
+                        <div class="progress"></div>
+                    </div>
+                    <div class="particles">
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                    </div>
+                    <div class="node node-left">
+                        <div class="node-outer">
+                            <div class="node-inner"></div>
+                        </div>
+                        <div class="pulse-ring"></div>
+                    </div>
+                    <div class="node node-right">
+                        <div class="node-outer">
+                            <div class="node-inner"></div>
+                        </div>
+                        <div class="pulse-ring"></div>
+                    </div>
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="20" x2="18" y2="10"/>
+                            <line x1="12" y1="20" x2="12" y2="4"/>
+                            <line x1="6" y1="20" x2="6" y2="14"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="info">
+                    <div class="info-header">
+                        <span class="service-name">TornStats API</span>
+                        <span class="badge error" id="tornStatsStatus">
+                            <span class="badge-dot"></span>
+                            Not Active
+                        </span>
+                    </div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Last Fetch</span>
+                            <span class="metric-value bad" id="tornStatsValue">Never</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="footer-text">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <span id="timestamp">Updated just now</span>
+            </div>
+            <button class="btn" id="refreshBtn" onclick="refresh()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 4v6h-6"/>
+                    <path d="M1 20v-6h6"/>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <script>
+        function setState(id, state, statusText) {
+            const card = document.getElementById(id);
+            const badge = document.getElementById(id + 'Status');
+            
+            card.classList.remove('connected', 'checking', 'error');
+            card.classList.add(state);
+            
+            badge.classList.remove('connected', 'checking', 'error');
+            badge.classList.add(state);
+            badge.innerHTML = `<span class="badge-dot"></span>${statusText}`;
+        }
+
+        function formatLastFetch(value) {
+            if (!value) return 'Never';
+            const date = typeof value === 'number' ? new Date(value) : new Date(value);
+            if (isNaN(date.getTime())) {
+                // If it's not a parsable timestamp, return as-is (e.g. error text)
+                return value;
+            }
+
+            const now = Date.now();
+            const diff = now - date.getTime();
+            const timeString = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date);
+            if (diff < 45 * 1000) return `${timeString} (just now)`;
+            if (diff < 90 * 1000) return `${timeString} (1 min ago)`;
+            const minutes = Math.floor(diff / 60000);
+            if (minutes < 60) return `${timeString} (${minutes} mins ago)`;
+
+            const longFormatter = new Intl.DateTimeFormat(undefined, {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            return longFormatter.format(date);
+        }
+
+        function closeDialog() {
+            if (window.connectionAPI && window.connectionAPI.closeDialog) {
+                window.connectionAPI.closeDialog();
+            } else {
+                // Fallback for testing in browser
+                const dialog = document.querySelector('.dialog');
+                dialog.style.animation = 'slideOut 0.15s ease-out forwards';
+                const style = document.createElement('style');
+                style.textContent = '@keyframes slideOut { to { opacity: 0; transform: translateY(-8px) scale(0.98); } }';
+                document.head.appendChild(style);
+            }
+        }
+
+        async function checkInternetConnection() {
+            setState('internet', 'checking', 'Checking');
+
+            try {
+                const result = await window.connectionAPI.checkInternet();
+
+                if (result.connected) {
+                    setState('internet', 'connected', 'Connected');
+                    document.getElementById('internetValue').textContent = 'Online';
+                    document.getElementById('internetValue').className = 'metric-value good';
+                    window.localStorage.setItem('connection_internet', 'true');
+                } else {
+                    setState('internet', 'error', 'Offline');
+                    document.getElementById('internetValue').textContent = result.error || 'Offline';
+                    document.getElementById('internetValue').className = 'metric-value bad';
+                    window.localStorage.setItem('connection_internet', 'false');
+                }
+            } catch (error) {
+                setState('internet', 'error', 'Error');
+                document.getElementById('internetValue').textContent = error.message || 'Error';
+                document.getElementById('internetValue').className = 'metric-value bad';
+                window.localStorage.setItem('connection_internet', 'false');
+            }
+        }
+
+        async function checkTornAPI() {
+            setState('tornApi', 'checking', 'Checking');
+
+            try {
+                const result = await window.connectionAPI.checkTornAPI();
+
+                if (result.connected) {
+                    setState('tornApi', 'connected', 'Active');
+                    document.getElementById('tornApiRate').textContent = result.rate || '60/min';
+
+                    const latencyEl = document.getElementById('tornApiLatency');
+                    latencyEl.textContent = result.latency || '-- ms';
+
+                    const ms = parseInt(result.latency);
+                    latencyEl.className = 'metric-value ' + (ms < 200 ? 'good' : ms < 500 ? 'warn' : 'bad');
+                    window.localStorage.setItem('connection_tornapi', 'true');
+                } else {
+                    setState('tornApi', 'error', 'Error');
+                    document.getElementById('tornApiRate').textContent = '--/min';
+                    document.getElementById('tornApiLatency').textContent = result.error || 'Error';
+                    document.getElementById('tornApiLatency').className = 'metric-value bad';
+                    window.localStorage.setItem('connection_tornapi', 'false');
+                }
+            } catch (error) {
+                setState('tornApi', 'error', 'Error');
+                document.getElementById('tornApiRate').textContent = '--/min';
+                document.getElementById('tornApiLatency').textContent = error.message || 'Error';
+                document.getElementById('tornApiLatency').className = 'metric-value bad';
+                window.localStorage.setItem('connection_tornapi', 'false');
+            }
+        }
+
+        async function checkTornStats() {
+            setState('tornStats', 'checking', 'Checking');
+
+            try {
+                const result = await window.connectionAPI.checkTornStats();
+                const valueEl = document.getElementById('tornStatsValue');
+                const formattedValue = formatLastFetch(result.lastFetch || Date.now());
+                const titleValue = typeof result.lastFetch === 'number'
+                    ? new Date(result.lastFetch).toLocaleString()
+                    : (result.lastFetch || 'Just now');
+
+                if (result.connected) {
+                    setState('tornStats', 'connected', 'Active');
+                    valueEl.textContent = formattedValue;
+                    valueEl.title = titleValue;
+                    valueEl.className = 'metric-value good';
+                    window.localStorage.setItem('connection_tornstats', 'true');
+                } else {
+                    setState('tornStats', 'error', 'Not Active');
+                    valueEl.textContent = formattedValue;
+                    valueEl.title = titleValue || 'Never';
+                    valueEl.className = 'metric-value bad';
+                    window.localStorage.setItem('connection_tornstats', 'false');
+                }
+            } catch (error) {
+                setState('tornStats', 'error', 'Error');
+                const valueEl = document.getElementById('tornStatsValue');
+                valueEl.textContent = error.message || 'Never';
+                valueEl.title = error.message || 'Error';
+                valueEl.className = 'metric-value bad';
+                window.localStorage.setItem('connection_tornstats', 'false');
+            }
+        }
+
+        async function refresh() {
+            const btn = document.getElementById('refreshBtn');
+            btn.classList.add('loading');
+
+            // Run all checks in parallel
+            await Promise.all([
+                checkInternetConnection(),
+                checkTornAPI(),
+                checkTornStats()
+            ]);
+
+            btn.classList.remove('loading');
+            document.getElementById('timestamp').textContent = 'Updated just now';
+        }
+
+        // Run checks on page load
+        if (window.connectionAPI) {
+            document.addEventListener('DOMContentLoaded', () => {
+                refresh();
+            });
+        }
+    </script>
+</body>
+</html>
