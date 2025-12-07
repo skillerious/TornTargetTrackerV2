@@ -23,7 +23,7 @@
 <p align="center">
   <a href="https://www.youtube.com/watch?v=xhCc4O7yduc">
     <img
-      src="https://github.com/skillerious/TornTargetTrackerV2/blob/main/assets/Screenshot%202025-12-07%20140203.png"
+      src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140203-copy.png"
       alt="Torn Target Tracker — Demo video"
       width="820"
     />
