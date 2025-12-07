@@ -17,9 +17,8 @@
   <img src="https://img.shields.io/badge/License-MIT-3fb950" alt="License"/>
 </p>
 
-<p align="center">
   https://raw.githubusercontent.com/skillerious/TornTargetTrackerV2/main/assets/compressed-0yQnZfaS.mp4
-</p>
+
 
 - [Highlights](#highlights)
 - [Demo](#demo)
