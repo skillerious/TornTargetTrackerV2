@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>VS Code-inspired Electron desktop app for Torn.com chain targets.</strong><br/>
+  <strong>Electron desktop app for Torn.com chain targets.</strong><br/>
   Live status, smart rate limiting, encrypted API key storage, and a keyboard-first workflow.
 </p>
 
@@ -56,7 +56,7 @@
 
 ## Highlights
 
-- VS Code-style chrome with dark theme, activity bar, and sidebar navigation.
+- VScode inspired dark theme, activity bar, and sidebar navigation.
 - Add, edit, and remove targets with nicknames and notes.
 - Live status refresh with configurable intervals and attackable filters.
 - Built-in rate limiter with exponential backoff, jitter, and `Retry-After` support.
