@@ -21,7 +21,7 @@
 
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=fbc-vikk2A4">
+  <a href="https://www.youtube.com/watch?v=xhCc4O7yduc">
     <img
       src="https://github.com/skillerious/TornTargetTrackerV2/blob/main/assets/Screenshot%202025-12-07%20140203.png"
       alt="Torn Target Tracker — Demo video"
