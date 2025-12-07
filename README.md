@@ -21,7 +21,8 @@
 
 ## 🎥 Demo video
 
-https://github.com/skillerious/TornTargetTrackerV2/raw/main/assets/compressed-0yQnZfaS.mp4
+[<img src="https://github.com/skillerious/TornTargetTrackerV2/raw/main/assets/compressed-0yQnZfaS.mp4" width="600" height="300"
+/>](https://github.com/skillerious/TornTargetTrackerV2/raw/main/assets/compressed-0yQnZfaS.mp4)
 
 ---
 
