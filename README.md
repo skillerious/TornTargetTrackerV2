@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <video src="https://raw.githubusercontent.com/skillerious/TornTargetTrackerV2/main/assets/compressed-0yQnZfaS.mp4" controls width="820"></video>
+  https://raw.githubusercontent.com/skillerious/TornTargetTrackerV2/main/assets/compressed-0yQnZfaS.mp4
 </p>
 
 - [Highlights](#highlights)
