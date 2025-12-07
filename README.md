@@ -17,7 +17,13 @@
   <img src="https://img.shields.io/badge/License-MIT-3fb950" alt="License"/>
 </p>
 
+<p align="center">
+  <video src="https://raw.githubusercontent.com/skillerious/TornTargetTrackerV2/main/assets/compressed-0yQnZfaS.mp4" controls width="820"></video>
+</p>
+
 - [Highlights](#highlights)
+- [Demo](#demo)
+- [Screenshots](#screenshots)
 - [Feature Snapshot](#feature-snapshot)
 - [Quick Start](#quick-start)
 - [System Requirements](#system-requirements)
@@ -43,6 +49,22 @@
 - Built-in rate limiter with exponential backoff, jitter, and `Retry-After` support.
 - One-click attack/profile actions plus keyboard-first navigation.
 - API key stored encrypted (AES-256-GCM) in your OS app data directory.
+
+## Demo
+
+If the embedded video does not load in your renderer, you can open it directly here:
+
+- https://github.com/skillerious/TornTargetTrackerV2/blob/main/assets/compressed-0yQnZfaS.mp4
+
+## Screenshots
+
+| | |
+|---|---|
+| **Home Screen**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140203.png" alt="Torn Target Tracker v2 Home Screen" width="420"> | **Target Data Screen**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140216.png" alt="Torn Target Tracker v2 Target Data Screen" width="420"> |
+| **NPC Loot Timers**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140235.png" alt="Torn Target Tracker v2 NPC Loot Timers" width="420"> | **Bounty Tracker**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140244.png" alt="Torn Target Tracker v2 Bounty Tracker" width="420"> |
+| **Settings (Cloud Backup)**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140253.png" alt="Torn Target Tracker v2 Settings Cloud Backup" width="420"> | **Help Section**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140300.png" alt="Torn Target Tracker v2 Help Section" width="420"> |
+| **About Dialog**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140307.png" alt="Torn Target Tracker v2 About Dialog" width="420"> | **Connection Dialog**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140319.png" alt="Torn Target Tracker v2 Connection Dialog" width="420"> |
+| **Onboarding Dialog**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140331.png" alt="Torn Target Tracker v2 Onboarding Dialog" width="420"> | **Attack Prevention Dialog**<br><img src="https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTrackerV2/Screenshot-2025-12-07-140348.png" alt="Torn Target Tracker v2 Attack Prevention Dialog" width="420"> |
 
 ## Feature Snapshot
 
@@ -77,9 +99,10 @@ Prerequisites: Node.js 18+ (npm included). No global installs needed.
 ## Configuration
 
 ### API Key
-1. Create a Torn API key with at least **Public** access: https://www.torn.com/preferences.php#tab=api
-2. In the app, open **Settings** (gear in the activity bar).
-3. Paste your key and click **Validate**. The key is encrypted before saving.
+
+1. Create a Torn API key with at least **Public** access: https://www.torn.com/preferences.php#tab=api  
+2. In the app, open **Settings** (gear in the activity bar).  
+3. Paste your key and click **Validate**. The key is encrypted before saving.  
 
 ### Settings Reference
 
@@ -93,29 +116,33 @@ Prerequisites: Node.js 18+ (npm included). No global installs needed.
 ## Usage
 
 ### Add Targets
-1. Click **+** in the sidebar header or press `Ctrl+N`.
-2. Enter the target User ID (from their profile URL).
-3. Optionally add a nickname and notes.
-4. Click **Add Target**.
+
+1. Click **+** in the sidebar header or press `Ctrl+N`.  
+2. Enter the target User ID (from their profile URL).  
+3. Optionally add a nickname and notes.  
+4. Click **Add Target**.  
 
 ### Manage Targets
-- **Select**: Click a target to view details.
-- **Attack**: Use the attack action or press `Enter` to open the attack page.
-- **Profile**: Open the Torn profile for the selected target.
-- **Refresh**: Update a single target's status.
-- **Remove**: Delete the target via `Delete` or the remove action.
+
+- **Select**: Click a target to view details.  
+- **Attack**: Use the attack action or press `Enter` to open the attack page.  
+- **Profile**: Open the Torn profile for the selected target.  
+- **Refresh**: Update a single target's status.  
+- **Remove**: Delete the target via `Delete` or the remove action.  
 
 ### Quick Filters
-- **All Targets**: Full list.
-- **Attackable**: Targets with "Okay" status.
-- **In Hospital**: Hospitalized targets.
-- **Traveling**: Currently abroad.
+
+- **All Targets**: Full list.  
+- **Attackable**: Targets with "Okay" status.  
+- **In Hospital**: Hospitalized targets.  
+- **Traveling**: Currently abroad.  
 
 ### Workflow Recipes
-- **Chain prep**: Filter to **Attackable**, sort by last seen, open attack pages in sequence.
-- **Recon**: Add notes per target (weapons, armor, boosts), keep **Compact Mode** on for density.
-- **Travel watch**: Filter **Traveling**, keep auto-refresh enabled for return alerts.
-- **Cooldown-aware pushes**: When a cooldown is applied, leave auto-refresh on; the limiter will resume requests automatically.
+
+- **Chain prep**: Filter to **Attackable**, sort by last seen, open attack pages in sequence.  
+- **Recon**: Add notes per target (weapons, armor, boosts), keep **Compact Mode** on for density.  
+- **Travel watch**: Filter **Traveling**, keep auto-refresh enabled for return alerts.  
+- **Cooldown-aware pushes**: When a cooldown is applied, leave auto-refresh on; the limiter will resume requests automatically.  
 
 ## Keyboard Shortcuts
 
@@ -131,11 +158,13 @@ Prerequisites: Node.js 18+ (npm included). No global installs needed.
 ## Technical Notes
 
 ### Rate Limiting
-- Tuned to Torn limits: **99 requests per 60 seconds**, then a 60s cooldown.
-- Retries respect `Retry-After`, use exponential backoff, and add jitter.
-- Automatic handling of HTTP 429 and transient failures.
+
+- Tuned to Torn limits: **99 requests per 60 seconds**, then a 60s cooldown.  
+- Retries respect `Retry-After`, use exponential backoff, and add jitter.  
+- Automatic handling of HTTP 429 and transient failures.  
 
 ### Data and Security
+
 - Storage locations (local-only, no cloud storage):
   - Windows: `%APPDATA%\\torn-target-tracker`
   - macOS: `~/Library/Application Support/torn-target-tracker`
@@ -144,6 +173,7 @@ Prerequisites: Node.js 18+ (npm included). No global installs needed.
 - User-friendly error handling for invalid keys, rate limiting, and network issues.
 
 ### Stack
+
 - Electron 28 (desktop shell)
 - Node.js 18+ (runtime)
 - Electron Store (persisted settings)
@@ -205,10 +235,10 @@ Tips:
 
 Fast sanity check before opening a PR:
 
-1. `npm install`
-2. `npm run dev` and add two test targets (OK + hospitalized) to confirm filters.
-3. Toggle **Compact Mode** and **Auto Refresh** in Settings to verify persistence after reload.
-4. Kill network temporarily; confirm the app shows a friendly error and recovers when back online.
+1. `npm install`  
+2. `npm run dev` and add two test targets (OK + hospitalized) to confirm filters.  
+3. Toggle **Compact Mode** and **Auto Refresh** in Settings to verify persistence after reload.  
+4. Kill network temporarily; confirm the app shows a friendly error and recovers when back online.  
 
 ## Build and Packaging
 
@@ -254,6 +284,7 @@ Release checklist:
 ## Contributing
 
 Pull requests and issue reports are welcome. Please:
+
 - Keep changes small and focused.
 - Include repro steps and expected/actual behavior for bugs.
 - Follow the existing code style; prefer small, pure functions in renderer logic.
