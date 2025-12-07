@@ -17,11 +17,16 @@
   <img src="https://img.shields.io/badge/License-MIT-3fb950" alt="License"/>
 </p>
 
-  https://raw.githubusercontent.com/skillerious/TornTargetTrackerV2/main/assets/compressed-0yQnZfaS.mp4
+---
 
+## 🎥 Demo video
+
+https://github.com/skillerious/TornTargetTrackerV2/raw/main/assets/compressed-0yQnZfaS.mp4
+
+---
 
 - [Highlights](#highlights)
-- [Demo](#demo)
+- [Demo video](#-demo-video)
 - [Screenshots](#screenshots)
 - [Feature Snapshot](#feature-snapshot)
 - [Quick Start](#quick-start)
@@ -48,12 +53,6 @@
 - Built-in rate limiter with exponential backoff, jitter, and `Retry-After` support.
 - One-click attack/profile actions plus keyboard-first navigation.
 - API key stored encrypted (AES-256-GCM) in your OS app data directory.
-
-## Demo
-
-If the embedded video does not load in your renderer, you can open it directly here:
-
-- https://github.com/skillerious/TornTargetTrackerV2/blob/main/assets/compressed-0yQnZfaS.mp4
 
 ## Screenshots
 
@@ -252,6 +251,7 @@ npm run build          # Build for current platform
 ```
 
 `package.json` builder config (summary):
+
 - `appId`: `com.torn.target-tracker`
 - `productName`: `Torn Target Tracker`
 - `directories.output`: `dist`
@@ -259,6 +259,7 @@ npm run build          # Build for current platform
 - Icons: `assets/logo.ico`, `assets/icon.icns`, `assets/icon.png`
 
 Release checklist:
+
 - Bump version in `package.json`.
 - Run `npm run build`.
 - Smoke-test the generated artifact (attackable filter, notifications, settings persistence).
