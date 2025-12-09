@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torn Target Tracker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0d0d0d;
+            --bg-elevated: #161616;
+            --bg-surface: #1e1e1e;
+            --bg-hover: #252526;
+            --border: #2d2d2d;
+            --border-subtle: #1f1f1f;
+            
+            --text-primary: #e4e4e4;
+            --text-secondary: #858585;
+            --text-muted: #5a5a5a;
+            
+            --accent-primary: #c41e3a;
+            --accent-secondary: #ff3d5a;
+            --accent-vscode: #0078d4;
+            --accent-success: #3fb950;
+            
+            --glow-red: rgba(196, 30, 58, 0.4);
+            --glow-blue: rgba(0, 120, 212, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            background: transparent;
+        }
+
+        body {
+            width: 100vw;
+            height: 100vh;
+            background: transparent;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Main container */
+        .splash {
+            position: relative;
+            width: min(520px, 90vw);
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 
+                0 0 0 1px var(--border-subtle),
+                0 24px 48px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Title bar - VS Code style */
+        .titlebar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .titlebar-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .app-icon {
+            width: 18px;
+            height: 18px;
+            display: block;
+            object-fit: contain;
+            filter: drop-shadow(0 0 4px rgba(196, 30, 58, 0.4));
+        }
+
+        .titlebar-text {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            letter-spacing: 0.3px;
+        }
+
+        .window-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .window-controls span {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+        }
+
+        /* Content area */
+        .content {
+            padding: 40px 36px;
+        }
+
+        /* Logo section */
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 36px;
+        }
+
+        .logo {
+            width: 64px;
+            height: 64px;
+            flex-shrink: 0;
+            border-radius: 14px;
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
+            border: 1px solid var(--border);
+            box-shadow:
+                0 12px 32px rgba(0, 0, 0, 0.55),
+                0 0 18px rgba(196, 30, 58, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .logo::after {
+            content: '';
+            position: absolute;
+            inset: 1px;
+            border-radius: 12px;
+            background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.06), transparent 55%);
+            pointer-events: none;
+        }
+
+        .logo-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.4)) drop-shadow(0 0 8px rgba(196, 30, 58, 0.35));
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .brand-title {
+            font-size: 22px;
+            font-weight: 600;
+            letter-spacing: -0.3px;
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+
+        .brand-title .highlight {
+            color: var(--accent-secondary);
+        }
+
+        .brand-version {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            background: var(--bg-surface);
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+
+        .brand-tagline {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* Status section */
+        .status-section {
+            margin-bottom: 28px;
+        }
+
+        .status-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .status-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--accent-success);
+            border-radius: 50%;
+            animation: statusPulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes statusPulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.4); }
+            50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(63, 185, 80, 0); }
+        }
+
+        .status-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--accent-success);
+        }
+
+        /* Terminal-style status display */
+        .terminal {
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .terminal-prompt {
+            color: var(--accent-primary);
+            flex-shrink: 0;
+        }
+
+        .terminal-text {
+            color: var(--text-secondary);
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .terminal-cursor {
+            width: 2px;
+            height: 14px;
+            background: var(--accent-vscode);
+            flex-shrink: 0;
+            animation: cursorBlink 1s step-end infinite;
+        }
+
+        @keyframes cursorBlink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* Progress bar */
+        .progress-section {
+            margin-bottom: 28px;
+        }
+
+        .progress-track {
+            height: 3px;
+            background: var(--bg-surface);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary), var(--accent-vscode));
+            background-size: 200% 100%;
+            border-radius: 3px;
+            animation: 
+                progressFill 3.5s ease-out forwards,
+                progressShimmer 2s linear infinite;
+            position: relative;
+        }
+
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: -4px;
+            width: 10px;
+            height: 10px;
+            background: var(--accent-secondary);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--glow-red);
+            opacity: 0;
+            animation: progressDot 3.5s ease-out forwards;
+        }
+
+        @keyframes progressFill {
+            0% { width: 0%; }
+            100% { width: 100%; }
+        }
+
+        @keyframes progressShimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        @keyframes progressDot {
+            0%, 95% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        /* Footer */
+        .footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .footer-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .footer-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .footer-badge svg {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
+            opacity: 0.7;
+        }
+
+        .kbd {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 3px 6px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+        }
+
+        .footer-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* Loading dots animation */
+        .loading-dots {
+            display: inline-flex;
+            gap: 3px;
+            margin-left: 2px;
+        }
+
+        .loading-dots span {
+            width: 3px;
+            height: 3px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            animation: dotPulse 1.4s ease-in-out infinite;
+        }
+
+        .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes dotPulse {
+            0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Scanline effect - subtle */
+        .scanlines {
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.03) 2px,
+                rgba(0, 0, 0, 0.03) 4px
+            );
+            pointer-events: none;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="splash">
+        <div class="scanlines"></div>
+        
+        <!-- VS Code style titlebar -->
+        <div class="titlebar">
+            <div class="titlebar-left">
+                <img class="app-icon" src="assets/logomain.png" alt="Torn Target Tracker logo">
+                <span class="titlebar-text">Torn Target Tracker</span>
+            </div>
+            <div class="window-controls">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Logo & Branding -->
+            <div class="logo-section">
+                <div class="logo">
+                    <img class="logo-img" src="assets/logomain.png" alt="Torn Target Tracker logo">
+                </div>
+                <div class="brand">
+                    <div class="brand-title">
+                        <span class="highlight">Torn</span> Target Tracker
+                        <span class="brand-version">v-</span>
+                    </div>
+                    <div class="brand-tagline">Intelligence overlay for Torn City operations</div>
+                </div>
+            </div>
+
+            <!-- Status Section -->
+            <div class="status-section">
+                <div class="status-header">
+                    <span class="status-label">System Status</span>
+                    <div class="status-indicator">
+                        <div class="status-dot"></div>
+                        <span class="status-text">ONLINE</span>
+                    </div>
+                </div>
+                <div class="terminal">
+                    <span class="terminal-prompt">❯</span>
+                    <span class="terminal-text" id="statusText">Initializing core modules</span>
+                    <span class="loading-dots"><span></span><span></span><span></span></span>
+                    <span class="terminal-cursor"></span>
+                </div>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress-section">
+                <div class="progress-track">
+                    <div class="progress-bar"></div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="footer">
+                <div class="footer-left">
+                    <div class="footer-badge">
+                        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                        <span>Open Source</span>
+                    </div>
+                    <div class="footer-badge">
+                        <span class="kbd">Ctrl</span>
+                        <span class="kbd">Shift</span>
+                        <span class="kbd">T</span>
+                    </div>
+                </div>
+                <span class="footer-hint">Loading silently in background</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DURATION = 3500;
+        const phrases = [
+            'Initializing core modules',
+            'Connecting to Torn City API',
+            'Loading target database',
+            'Syncing faction intelligence',
+            'Configuring overlay system',
+            'Arming tactical macros',
+            'Finalizing startup sequence'
+        ];
+
+        const statusEl = document.getElementById('statusText');
+        let currentIndex = 0;
+
+        function updateStatus() {
+            statusEl.style.opacity = '0';
+            statusEl.style.transform = 'translateX(-4px)';
+            
+            setTimeout(() => {
+                currentIndex = (currentIndex + 1) % phrases.length;
+                statusEl.textContent = phrases[currentIndex];
+                statusEl.style.opacity = '1';
+                statusEl.style.transform = 'translateX(0)';
+            }, 150);
+        }
+
+        // Add transition styles
+        statusEl.style.transition = 'opacity 0.15s ease, transform 0.15s ease';
+
+        const interval = setInterval(updateStatus, DURATION / phrases.length);
+        setTimeout(() => clearInterval(interval), DURATION + 200);
+    </script>
+</body>
+</html>

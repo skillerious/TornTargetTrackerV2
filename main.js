@@ -40,6 +40,7 @@ const DEFAULT_MAX_BACKUP_FILES = 10;
 const MIN_BACKUP_FILES = 3;
 const MAX_BACKUP_FILES_LIMIT = 50;
 const DEFAULT_AUTO_BACKUP_INTERVAL_DAYS = 7;
+const SPLASH_MIN_DURATION_MS = 3500;
 
 // Encryption configuration
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
@@ -47,6 +48,9 @@ let ENCRYPTION_KEY = null;
 const MAX_TARGET_CACHE_ENTRIES = 2000;
 const CACHE_DIR_NAME = 'Cache';
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
+const VERSION_FILE_NAME = 'version.json';
+const VERSION_FILE_PATH = path.join(__dirname, VERSION_FILE_NAME);
+let cachedAppVersion = null;
 
 if (!gotSingleInstanceLock) {
     app.quit();
@@ -111,6 +115,34 @@ class Logger {
 }
 
 // ============================================================================
+// VERSION LOADER
+// ============================================================================
+
+function getAppVersion() {
+    if (cachedAppVersion) return cachedAppVersion;
+
+    try {
+        const raw = fs.readFileSync(VERSION_FILE_PATH, 'utf8');
+        const parsed = JSON.parse(raw);
+        const version = typeof parsed.version === 'string' ? parsed.version.trim() : '';
+        if (!version) {
+            throw new Error('Missing version field');
+        }
+        cachedAppVersion = version;
+        return cachedAppVersion;
+    } catch (error) {
+        const fallback = app.getVersion ? app.getVersion() : '0.0.0';
+        cachedAppVersion = fallback;
+        if (logger?.warn) {
+            logger.warn('Falling back to package version (version.json unavailable)', { error: error.message });
+        } else {
+            console.warn('[Version]', 'Falling back to package version (version.json unavailable):', error.message);
+        }
+        return cachedAppVersion;
+    }
+}
+
+// ============================================================================
 // STORE INITIALIZATION
 // ============================================================================
 
@@ -121,34 +153,68 @@ const STORE_DEFAULTS = {
     ],
     attackHistory: [],
     settings: {
+        // API Configuration
         apiKey: '',
-        refreshInterval: 30,
-        notifications: true,
-        soundEnabled: false,
-        compactMode: false,
-        autoRefresh: true,
-        showOfflineTargets: true,
-        confirmBeforeAttack: false,
-        minimizeToTray: false,
-        startMinimized: false,
-        maxConcurrentRequests: 3,
-        theme: 'dark',
-        listDensity: 'comfortable',
-        timestampFormat: '12h',
-        showAvatars: true,
-        showStatusCountBadges: true,
-        confirmBeforeDelete: true,
         tornStatsApiKey: '',
         playerLevel: null,
         playerName: '',
         playerId: null,
+
+        // Refresh Settings
+        refreshInterval: 30,
+        autoRefresh: true,
+        maxConcurrentRequests: 1,
+        apiRateLimitPerMinute: 80,
+
+        // Notifications
+        notifications: true,
+        soundEnabled: false,
+        soundVolume: 50,
+        notifyOnlyMonitored: false,
+        notifyOnHospitalRelease: false,
+        notifyOnJailRelease: false,
+        notifyOnTargetAdded: true,
+        notifyOnTargetRemoved: false,
+        notifyOnStatusChange: false,
+
+        // Display
+        theme: 'dark',
+        listDensity: 'comfortable',
+        timestampFormat: '12h',
+        showAvatars: true,
+        showOfflineTargets: true,
+        showStatusCountBadges: true,
+        compactMode: true,
+
+        // Behavior
+        confirmBeforeAttack: false,
+        confirmBeforeDelete: true,
+        playAttackSound: false,
+        doNotAttackRecentActivityDays: 5,
+        sortRememberLast: true,
+
+        // Window & Tray
+        minimizeToTray: false,
+        startMinimized: false,
+
+        // Data Management
         autoBackupEnabled: false,
         autoBackupInterval: DEFAULT_AUTO_BACKUP_INTERVAL_DAYS,
         backupRetention: DEFAULT_MAX_BACKUP_FILES,
         backupBeforeBulk: true,
         cloudBackupEnabled: false,
         cloudBackupProvider: 'google-drive',
-        cloudBackupPath: ''
+        cloudBackupPath: '',
+        maxHistoryEntries: 1000,
+
+        // First Run
+        showOnboarding: true
+    },
+    bounties: {
+        stats: null,
+        watchlist: [],
+        lastAlertedReceived: null,
+        alert: { active: false, delta: 0 }
     },
     windowBounds: {
         width: 1280,
@@ -227,6 +293,7 @@ let lastTrayBounds = null;
 let lastTrayWorkArea = null;
 const TRAY_MENU_MARGIN = 8;
 let trayMenuOpen = false;
+let splashWindow = null;
 
 // ============================================================================
 // ENCRYPTION HELPERS
@@ -1074,8 +1141,9 @@ function getCachedTarget(userId) {
 // WINDOW CREATION
 // ============================================================================
 
-function createWindow() {
+function createWindow(options = {}) {
     const bounds = store.get('windowBounds');
+    const autoShow = options.autoShow !== false;
     
     mainWindow = new BrowserWindow({
         width: bounds.width,
@@ -1097,13 +1165,39 @@ function createWindow() {
 
     mainWindow.loadFile('index.html');
 
-    // Show window when ready
-    mainWindow.once('ready-to-show', () => {
-        if (!store.get('settings.startMinimized')) {
-            mainWindow.show();
+    const readyPromise = new Promise(resolve => {
+        let resolved = false;
+        let isReadyToShow = false;
+        let didFinishLoad = false;
+
+        const tryResolve = () => {
+            if (resolved || !isReadyToShow || !didFinishLoad) return;
+            resolved = true;
+            logger?.info('Application window ready');
+            resolve();
+        };
+
+        mainWindow.once('ready-to-show', () => {
+            isReadyToShow = true;
+            tryResolve();
+        });
+
+        mainWindow.webContents.once('did-finish-load', () => {
+            didFinishLoad = true;
+            tryResolve();
+        });
+    });
+
+    readyPromise.then(() => {
+        if (!autoShow) return;
+        const shouldStartMinimized = !!store.get('settings.startMinimized');
+        if (shouldStartMinimized) {
+            mainWindow.showInactive();
+            mainWindow.minimize();
+        } else {
             mainWindow.maximize();
+            mainWindow.show();
         }
-        logger?.info('Application window ready');
     });
 
     // Save window bounds on resize
@@ -1131,6 +1225,69 @@ function createWindow() {
     if (process.argv.includes('--dev')) {
         mainWindow.webContents.openDevTools();
     }
+
+    return readyPromise;
+}
+
+function createSplashWindow() {
+    splashWindow = new BrowserWindow({
+        width: 760,
+        height: 420,
+        frame: false,
+        resizable: false,
+        transparent: true,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        backgroundColor: '#00000000',
+        show: false,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+
+    splashWindow.setMenuBarVisibility(false);
+    splashWindow.loadFile('splash.html');
+    const splashVersion = getAppVersion();
+    splashWindow.webContents.once('did-finish-load', () => {
+        const versionText = JSON.stringify(`v${splashVersion}`);
+        splashWindow?.webContents?.executeJavaScript(
+            `(function(){ const el = document.querySelector('.brand-version'); if (el) { el.textContent = ${versionText}; } })();`,
+            true
+        ).catch(err => logger?.warn?.('Failed to set splash version', { error: err.message }));
+    });
+    splashWindow.once('ready-to-show', () => splashWindow?.show());
+    splashWindow.on('closed', () => {
+        splashWindow = null;
+    });
+}
+
+async function revealMainWindowAfterSplash(mainReadyPromise) {
+    const splashDelay = new Promise(resolve => setTimeout(resolve, SPLASH_MIN_DURATION_MS));
+    await Promise.all([mainReadyPromise, splashDelay]);
+
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    const shouldStartMinimized = !!store.get('settings.startMinimized');
+    mainWindow.setOpacity(0);
+    if (shouldStartMinimized) {
+        mainWindow.showInactive();
+        mainWindow.minimize();
+    } else {
+        mainWindow.maximize();
+        mainWindow.show();
+    }
+
+    if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.close();
+    }
+
+    setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.setOpacity(1);
+        }
+    }, 120);
+    logger?.info('Splash finished, showing main window');
 }
 
 // ============================================================================
@@ -1515,211 +1672,609 @@ function computeMenuPosition(bounds, workArea, width, height) {
 function showTrayMenu(intel, bounds) {
     closeTrayMenu();
 
-    const tickPath = path.join(__dirname, 'assets', 'tick.png');
-    let tickDataUrl = '';
-    try {
-        const tickBuffer = fs.readFileSync(tickPath);
-        tickDataUrl = `data:image/png;base64,${tickBuffer.toString('base64')}`;
-    } catch {
-        tickDataUrl = '';
-    }
-
-    const width = 290;
+    const width = 320;
     const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
     const workArea = display.workArea;
 
     lastTrayBounds = bounds;
     lastTrayWorkArea = workArea;
 
-    const rows =
-        5 + // status
-        (intel.lastAttackLabel ? 1 : 0) +
-        4 + // actions
-        4 + // toggles
-        3 + // maintenance
-        1;  // app
-    const headers = 5;
-    const separators = 4;
-    const estimateHeight = rows * 24 + headers * 12 + separators * 6 + 28;
-    const maxHeight = Math.max(360, workArea.height - 12);
-    const height = Math.min(Math.max(estimateHeight, 360), maxHeight);
+    // Get player info from settings
+    const settings = store?.get('settings', {}) || {};
+    const playerName = settings.playerName || 'Torn Player';
+    const playerId = settings.playerId || null;
+
+    // Calculate dynamic height based on content
+    const baseHeight = 520;
+    const lastAttackHeight = intel.lastAttackLabel ? 36 : 0;
+    const estimateHeight = baseHeight + lastAttackHeight;
+    const maxHeight = Math.min(640, workArea.height - 20);
+    const height = Math.min(estimateHeight, maxHeight);
 
     const { x, y } = computeMenuPosition(bounds, workArea, width, height);
 
-    const sections = [
-        {
-            title: 'STATUS',
-            items: [
-                { id: 'status-ready', icon: TRAY_ICONS.attackable, label: intel.totalTargets ? `Ready ${intel.attackable}/${intel.totalTargets}` : 'No targets', detail: intel.stats.totalAttacks ? `Lifetime ${intel.stats.totalAttacks}` : null },
-                { id: 'status-sync', icon: intel.syncIcon, label: intel.syncLabel === 'never' ? 'Sync pending' : `Sync ${intel.syncLabel}`, detail: intel.refreshAgeMinutes === null || intel.refreshAgeMinutes > 20 ? (intel.refreshAgeMinutes === null ? 'Stale' : `Stale ${Math.max(0, Math.round(intel.refreshAgeMinutes))}m`) : 'Fresh' },
-                { id: 'status-api', icon: TRAY_ICONS.rate, label: `API ${intel.rateLabel}`, detail: intel.ratePercent === null ? null : intel.ratePercent <= 10 ? 'Critically low' : intel.ratePercent <= 30 ? 'Low' : intel.ratePercent <= 60 ? 'Okay' : 'Healthy' },
-                { id: 'status-backup', icon: intel.backupIcon, label: intel.backupLabel === 'never' ? 'Backup missing' : `Backup ${intel.backupLabel}`, detail: intel.backupLabel === 'never' ? 'Run a backup soon' : null },
-                intel.lastAttackLabel
-                    ? { id: 'tray-last-attack', icon: TRAY_ICONS.lastAttack, label: `Last ${intel.lastAttackLabel}`, detail: 'Open profile' }
-                    : null
-            ].filter(Boolean)
-        },
-        {
-            title: 'ACTIONS',
-            items: [
-                { id: 'tray-window', icon: TRAY_ICONS.window, label: mainWindow && mainWindow.isVisible() ? 'Hide window' : 'Show window' },
-                { id: 'tray-refresh', icon: TRAY_ICONS.refresh, label: intel.refreshAgeMinutes === null ? 'Refresh now (never synced)' : intel.refreshAgeMinutes > 20 ? `Refresh now (stale ${Math.max(0, Math.round(intel.refreshAgeMinutes))}m)` : 'Refresh now' },
-                { id: 'tray-quick-add', icon: TRAY_ICONS.quickAdd, label: 'Quick add target (Ctrl+N)' },
-                { id: 'tray-settings', icon: TRAY_ICONS.settings, label: 'Settings' }
-            ]
-        },
-        {
-            title: 'TOGGLES',
-            items: [
-                { id: 'tray-notifications', icon: TRAY_ICONS.notifications, label: 'Notifications', checked: intel.notificationsEnabled },
-                { id: 'tray-sound', icon: TRAY_ICONS.sound, label: 'Sound alerts', checked: intel.soundEnabled },
-                { id: 'tray-start-minimized', icon: TRAY_ICONS.startMin, label: 'Start minimized', checked: intel.startMinimized },
-                { id: 'tray-keep-tray', icon: TRAY_ICONS.keepTray, label: 'Keep in tray', checked: intel.minimizeToTray }
-            ]
-        },
-        {
-            title: 'MAINTENANCE',
-            items: [
-                { id: 'tray-backup-now', icon: TRAY_ICONS.backupNow, label: 'Backup now' },
-                { id: 'tray-open-backups', icon: TRAY_ICONS.folder, label: 'Backup folder' },
-                { id: 'tray-open-logs', icon: TRAY_ICONS.logs, label: 'Logs folder' }
-            ]
-        },
-        {
-            title: 'APP',
-            items: [
-                { id: 'tray-quit', icon: TRAY_ICONS.quit, label: 'Quit' }
-            ]
-        }
-    ];
+    // SVG Icons for cleaner appearance
+    const SVG_ICONS = {
+        crosshair: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-4h2v-3h3v-2h-3V8h-2v3H8v2h3z"/></svg>',
+        sync: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>',
+        api: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14 12l-2 2-2-2 2-2 2 2zm-2-6l2.12 2.12 2.5-2.5L12 1 7.38 5.62l2.5 2.5L12 6zm-6 6l2.12-2.12-2.5-2.5L1 12l4.62 4.62 2.5-2.5L6 12zm12 0l-2.12 2.12 2.5 2.5L23 12l-4.62-4.62-2.5 2.5L18 12zm-6 6l-2.12-2.12-2.5 2.5L12 23l4.62-4.62-2.5-2.5L12 18z"/></svg>',
+        backup: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>',
+        target: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>',
+        window: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 4H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H5V8h14v10z"/></svg>',
+        refresh: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
+        add: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>',
+        settings: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>',
+        bell: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>',
+        volume: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
+        minimize: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 13H5v-2h14v2z"/></svg>',
+        pin: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>',
+        folder: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>',
+        file: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
+        power: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg>',
+        user: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
+        check: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>'
+    };
 
-    const rowsMarkup = sections
-        .map(section => `
-            <div class="section">
-                <div class="section-title">${section.title}</div>
-                ${section.items.map(item => `
-                    <button class="item ${item.checked ? 'checked' : ''}" data-id="${item.id}">
-                        <span class="left">
-                            <span class="icon">${item.icon}</span>
-                            <span class="text">
-                                <span class="primary">${item.label}</span>
-                                ${item.detail ? `<span class="detail">${item.detail}</span>` : ''}
-                            </span>
-                        </span>
-                        ${item.checked
-                            ? `<span class="tick"><img src="${tickDataUrl || `file://${tickPath.replace(/\\\\/g, '/')}`}" alt="checked"></span>`
-                            : '<span class="tick spacer"></span>'}
-                    </button>
-                `).join('')}
-            </div>
-        `).join('');
+    // Get status colors
+    const getSyncStatusColor = (minutes) => {
+        if (minutes === null) return '#a855f7'; // purple - never synced
+        if (minutes > 45) return '#ef4444'; // red
+        if (minutes > 15) return '#f97316'; // orange
+        return '#22c55e'; // green
+    };
+
+    const getApiStatusColor = (percent) => {
+        if (percent === null) return '#6b7280'; // gray
+        if (percent <= 10) return '#ef4444'; // red
+        if (percent <= 30) return '#f97316'; // orange
+        if (percent <= 60) return '#eab308'; // yellow
+        return '#22c55e'; // green
+    };
+
+    const syncColor = getSyncStatusColor(intel.refreshAgeMinutes);
+    const apiColor = getApiStatusColor(intel.ratePercent);
+    const backupWarning = intel.backupLabel === 'never';
+
+    // Format attack status
+    const attackStatus = intel.totalTargets === 0
+        ? 'No targets tracked'
+        : intel.attackable > 0
+            ? `${intel.attackable} ready to attack`
+            : 'All targets busy';
+    const attackStatusClass = intel.attackable > 0 ? 'status-ready' : 'status-busy';
 
     const html = `
     <!doctype html>
     <html>
     <head>
       <style>
-        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+
         :root {
-          --bg: #111418f2;
-          --card: #181b21;
-          --text: #e9ebf0;
-          --muted: #9aa2b1;
-          --border: #2c3240;
-          --accent: #6db1ff;
+          --bg-primary: #1b2838;
+          --bg-secondary: #171d25;
+          --bg-tertiary: #1e2837;
+          --bg-hover: #2a475e;
+          --bg-active: #3d6a8a;
+          --text-primary: #c7d5e0;
+          --text-secondary: #8f98a0;
+          --text-muted: #5a6772;
+          --accent-blue: #66c0f4;
+          --accent-green: #5ba32b;
+          --border-color: #2a3f54;
+          --divider: #2a3f54;
+          --shadow: rgba(0, 0, 0, 0.5);
         }
-        * { box-sizing: border-box; }
+
         body {
-          margin: 0;
-          padding: 8px 6px;
+          font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+          font-size: 13px;
+          color: var(--text-primary);
           background: transparent;
-          font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
-          color: var(--text);
           user-select: none;
+          padding: 4px;
+        }
+
+        .menu-container {
+          background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          box-shadow: 0 8px 32px var(--shadow), 0 0 0 1px rgba(102, 192, 244, 0.1);
           overflow: hidden;
         }
-        .panel {
-          width: 100%;
-          background: var(--bg);
-          border: 1px solid var(--border);
-          border-radius: 10px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.45);
-          padding: 8px;
+
+        /* Header Section */
+        .menu-header {
+          background: linear-gradient(135deg, #1e3a5f 0%, #1b2838 100%);
+          padding: 14px 16px;
+          border-bottom: 1px solid var(--divider);
           display: flex;
-          flex-direction: column;
-          gap: 10px;
-          overflow: hidden;
+          align-items: center;
+          gap: 12px;
         }
-        .section {
-          background: var(--card);
-          border: 1px solid var(--border);
+
+        .app-icon {
+          width: 40px;
+          height: 40px;
+          background: linear-gradient(135deg, var(--accent-blue) 0%, #4a9eda 100%);
           border-radius: 8px;
-          padding: 6px;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 8px rgba(102, 192, 244, 0.3);
         }
-        .section + .section { margin-top: 2px; }
-        .section-title {
-          font-size: 11px;
-          letter-spacing: 0.08em;
-          color: var(--muted);
-          margin: 2px 4px 6px;
+
+        .app-icon svg {
+          width: 24px;
+          height: 24px;
+          fill: white;
         }
-        .item {
-          width: 100%;
+
+        .header-info {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .app-title {
+          font-size: 14px;
+          font-weight: 600;
+          color: white;
+          margin-bottom: 2px;
+        }
+
+        .player-info {
+          font-size: 12px;
+          color: var(--text-secondary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        /* Status Banner */
+        .status-banner {
+          padding: 10px 16px;
+          background: var(--bg-tertiary);
+          border-bottom: 1px solid var(--divider);
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 6px 8px;
-          border: 0;
-          background: transparent;
-          color: var(--text);
-          border-radius: 6px;
-          cursor: pointer;
-          transition: background 120ms ease, transform 120ms ease;
         }
-        .item:hover { background: rgba(255,255,255,0.06); transform: translateY(-1px); }
-        .item:active { background: rgba(255,255,255,0.08); transform: translateY(0); }
-        .item .left { display: inline-flex; gap: 10px; align-items: center; }
-        .icon { width: 18px; text-align: center; }
-        .text { display: flex; flex-direction: column; align-items: flex-start; }
-        .primary { font-size: 13px; }
-        .detail { font-size: 11px; color: var(--muted); }
-        .tick { width: 18px; height: 18px; display: flex; align-items: center; justify-content: flex-end; }
-        .tick img { width: 14px; height: 14px; display: block; }
-        .tick.spacer { visibility: hidden; }
+
+        .status-main {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .status-indicator {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-ready .status-indicator { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+        .status-busy .status-indicator { background: #f97316; box-shadow: 0 0 8px #f97316; animation: none; }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+
+        .status-text {
+          font-size: 13px;
+          font-weight: 500;
+        }
+
+        .status-count {
+          font-size: 12px;
+          color: var(--text-secondary);
+          padding: 3px 8px;
+          background: var(--bg-secondary);
+          border-radius: 10px;
+        }
+
+        /* Quick Stats */
+        .quick-stats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 8px;
+          padding: 10px 12px;
+          border-bottom: 1px solid var(--divider);
+        }
+
+        .stat-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 8px 4px;
+          background: var(--bg-tertiary);
+          border-radius: 6px;
+          border: 1px solid transparent;
+          transition: all 0.15s ease;
+        }
+
+        .stat-item:hover {
+          border-color: var(--accent-blue);
+          background: var(--bg-hover);
+        }
+
+        .stat-icon {
+          width: 18px;
+          height: 18px;
+          margin-bottom: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .stat-icon svg {
+          width: 16px;
+          height: 16px;
+        }
+
+        .stat-value {
+          font-size: 11px;
+          font-weight: 600;
+          margin-bottom: 2px;
+        }
+
+        .stat-label {
+          font-size: 9px;
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        /* Menu Sections */
+        .menu-section {
+          padding: 6px 0;
+        }
+
+        .menu-section + .menu-section {
+          border-top: 1px solid var(--divider);
+        }
+
+        .section-label {
+          font-size: 10px;
+          font-weight: 600;
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+          padding: 6px 16px 4px;
+        }
+
+        /* Menu Items */
+        .menu-item {
+          display: flex;
+          align-items: center;
+          padding: 8px 16px;
+          cursor: pointer;
+          transition: all 0.1s ease;
+          gap: 12px;
+          border: none;
+          background: transparent;
+          width: 100%;
+          text-align: left;
+          color: var(--text-primary);
+          font-size: 13px;
+        }
+
+        .menu-item:hover {
+          background: var(--bg-hover);
+        }
+
+        .menu-item:active {
+          background: var(--bg-active);
+        }
+
+        .menu-item.danger:hover {
+          background: rgba(239, 68, 68, 0.15);
+        }
+
+        .menu-item-icon {
+          width: 18px;
+          height: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--text-secondary);
+        }
+
+        .menu-item-icon svg {
+          width: 16px;
+          height: 16px;
+        }
+
+        .menu-item:hover .menu-item-icon {
+          color: var(--accent-blue);
+        }
+
+        .menu-item.danger:hover .menu-item-icon {
+          color: #ef4444;
+        }
+
+        .menu-item-content {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .menu-item-label {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .menu-item-shortcut {
+          font-size: 11px;
+          color: var(--text-muted);
+          margin-left: auto;
+          padding-left: 16px;
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+          width: 36px;
+          height: 20px;
+          background: var(--bg-secondary);
+          border-radius: 10px;
+          position: relative;
+          cursor: pointer;
+          transition: background 0.2s ease;
+          border: 1px solid var(--border-color);
+        }
+
+        .toggle-switch.active {
+          background: var(--accent-blue);
+          border-color: var(--accent-blue);
+        }
+
+        .toggle-switch::after {
+          content: '';
+          position: absolute;
+          width: 14px;
+          height: 14px;
+          background: white;
+          border-radius: 50%;
+          top: 2px;
+          left: 2px;
+          transition: transform 0.2s ease;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        .toggle-switch.active::after {
+          transform: translateX(16px);
+        }
+
+        /* Footer */
+        .menu-footer {
+          padding: 8px 12px;
+          background: var(--bg-secondary);
+          border-top: 1px solid var(--divider);
+        }
+
+        .footer-item {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 8px;
+          border-radius: 4px;
+          cursor: pointer;
+          transition: all 0.1s ease;
+          gap: 8px;
+          background: transparent;
+          border: none;
+          width: 100%;
+          color: var(--text-secondary);
+          font-size: 12px;
+        }
+
+        .footer-item:hover {
+          background: rgba(239, 68, 68, 0.1);
+          color: #ef4444;
+        }
+
+        .footer-item svg {
+          width: 14px;
+          height: 14px;
+        }
       </style>
     </head>
     <body>
-      <div class="panel">
-        ${rowsMarkup}
+      <div class="menu-container">
+        <!-- Header -->
+        <div class="menu-header">
+          <div class="app-icon">
+            ${SVG_ICONS.target}
+          </div>
+          <div class="header-info">
+            <div class="app-title">Target Tracker</div>
+            <div class="player-info">${playerId ? `${playerName} [${playerId}]` : playerName}</div>
+          </div>
+        </div>
+
+        <!-- Status Banner -->
+        <div class="status-banner ${attackStatusClass}">
+          <div class="status-main">
+            <div class="status-indicator"></div>
+            <span class="status-text">${attackStatus}</span>
+          </div>
+          <span class="status-count">${intel.totalTargets} total</span>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="quick-stats">
+          <div class="stat-item" title="Last sync: ${intel.syncLabel}">
+            <div class="stat-icon" style="color: ${syncColor}">${SVG_ICONS.sync}</div>
+            <div class="stat-value" style="color: ${syncColor}">${intel.refreshAgeMinutes !== null ? Math.round(intel.refreshAgeMinutes) + 'm' : 'Never'}</div>
+            <div class="stat-label">Synced</div>
+          </div>
+          <div class="stat-item" title="API tokens: ${intel.rateLabel}">
+            <div class="stat-icon" style="color: ${apiColor}">${SVG_ICONS.api}</div>
+            <div class="stat-value" style="color: ${apiColor}">${intel.ratePercent !== null ? intel.ratePercent + '%' : 'N/A'}</div>
+            <div class="stat-label">API</div>
+          </div>
+          <div class="stat-item" title="Last backup: ${intel.backupLabel}">
+            <div class="stat-icon" style="color: ${backupWarning ? '#f97316' : '#22c55e'}">${SVG_ICONS.backup}</div>
+            <div class="stat-value" style="color: ${backupWarning ? '#f97316' : 'var(--text-primary)'}">${intel.backupLabel === 'never' ? 'None' : intel.backupLabel}</div>
+            <div class="stat-label">Backup</div>
+          </div>
+        </div>
+
+        <!-- Actions Section -->
+        <div class="menu-section">
+          <div class="section-label">Actions</div>
+          <button class="menu-item" data-id="tray-window">
+            <span class="menu-item-icon">${SVG_ICONS.window}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">${mainWindow && mainWindow.isVisible() ? 'Hide Window' : 'Show Window'}</span>
+            </span>
+          </button>
+          <button class="menu-item" data-id="tray-refresh">
+            <span class="menu-item-icon">${SVG_ICONS.refresh}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Refresh All Targets</span>
+            </span>
+            <span class="menu-item-shortcut">F5</span>
+          </button>
+          <button class="menu-item" data-id="tray-quick-add">
+            <span class="menu-item-icon">${SVG_ICONS.add}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Add New Target</span>
+            </span>
+            <span class="menu-item-shortcut">Ctrl+N</span>
+          </button>
+          <button class="menu-item" data-id="tray-settings">
+            <span class="menu-item-icon">${SVG_ICONS.settings}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Settings</span>
+            </span>
+            <span class="menu-item-shortcut">Ctrl+,</span>
+          </button>
+        </div>
+
+        ${intel.lastAttackLabel ? `
+        <!-- Last Attack -->
+        <div class="menu-section">
+          <button class="menu-item" data-id="tray-last-attack">
+            <span class="menu-item-icon">${SVG_ICONS.target}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Last: ${intel.lastAttack?.targetName || 'Unknown'}</span>
+            </span>
+          </button>
+        </div>
+        ` : ''}
+
+        <!-- Preferences Section -->
+        <div class="menu-section">
+          <div class="section-label">Preferences</div>
+          <button class="menu-item" data-id="tray-notifications">
+            <span class="menu-item-icon">${SVG_ICONS.bell}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Notifications</span>
+            </span>
+            <div class="toggle-switch ${intel.notificationsEnabled ? 'active' : ''}"></div>
+          </button>
+          <button class="menu-item" data-id="tray-sound">
+            <span class="menu-item-icon">${SVG_ICONS.volume}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Sound Alerts</span>
+            </span>
+            <div class="toggle-switch ${intel.soundEnabled ? 'active' : ''}"></div>
+          </button>
+          <button class="menu-item" data-id="tray-start-minimized">
+            <span class="menu-item-icon">${SVG_ICONS.minimize}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Start Minimized</span>
+            </span>
+            <div class="toggle-switch ${intel.startMinimized ? 'active' : ''}"></div>
+          </button>
+          <button class="menu-item" data-id="tray-keep-tray">
+            <span class="menu-item-icon">${SVG_ICONS.pin}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Minimize to Tray</span>
+            </span>
+            <div class="toggle-switch ${intel.minimizeToTray ? 'active' : ''}"></div>
+          </button>
+        </div>
+
+        <!-- Tools Section -->
+        <div class="menu-section">
+          <div class="section-label">Tools</div>
+          <button class="menu-item" data-id="tray-backup-now">
+            <span class="menu-item-icon">${SVG_ICONS.backup}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Create Backup</span>
+            </span>
+          </button>
+          <button class="menu-item" data-id="tray-open-backups">
+            <span class="menu-item-icon">${SVG_ICONS.folder}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Open Backup Folder</span>
+            </span>
+          </button>
+          <button class="menu-item" data-id="tray-open-logs">
+            <span class="menu-item-icon">${SVG_ICONS.file}</span>
+            <span class="menu-item-content">
+              <span class="menu-item-label">Open Log Files</span>
+            </span>
+          </button>
+        </div>
+
+        <!-- Footer -->
+        <div class="menu-footer">
+          <button class="footer-item" data-id="tray-quit">
+            ${SVG_ICONS.power}
+            <span>Quit Application</span>
+          </button>
+        </div>
       </div>
+
       <script>
         const { ipcRenderer } = require('electron');
-        window.addEventListener('mousedown', (e) => {
-          if (!document.querySelector('.panel').contains(e.target)) {
-            ipcRenderer.send('tray-menu-close');
-          }
-        });
-        document.querySelectorAll('.item').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const id = btn.getAttribute('data-id');
+
+        // Handle menu item clicks
+        document.querySelectorAll('[data-id]').forEach(item => {
+          item.addEventListener('click', (e) => {
+            const id = item.getAttribute('data-id');
             ipcRenderer.send('tray-menu-action', id);
           });
         });
-        const panel = document.querySelector('.panel');
-        let hoverTimer = null;
-        panel.addEventListener('mouseenter', () => {
-          if (hoverTimer) clearTimeout(hoverTimer);
-        });
-        panel.addEventListener('mouseleave', () => {
-          hoverTimer = setTimeout(() => {
+
+        // Close on click outside
+        window.addEventListener('mousedown', (e) => {
+          if (!document.querySelector('.menu-container').contains(e.target)) {
             ipcRenderer.send('tray-menu-close');
-          }, 150);
+          }
         });
-        window.addEventListener('blur', () => ipcRenderer.send('tray-menu-close'));
+
+        // Close on blur
+        window.addEventListener('blur', () => {
+          ipcRenderer.send('tray-menu-close');
+        });
+
+        // Auto-close on mouse leave with delay
+        const container = document.querySelector('.menu-container');
+        let closeTimer = null;
+
+        container.addEventListener('mouseenter', () => {
+          if (closeTimer) {
+            clearTimeout(closeTimer);
+            closeTimer = null;
+          }
+        });
+
+        container.addEventListener('mouseleave', () => {
+          closeTimer = setTimeout(() => {
+            ipcRenderer.send('tray-menu-close');
+          }, 300);
+        });
+
+        // Report actual height for window resizing
         requestAnimationFrame(() => {
-          const desired = Math.ceil(panel.getBoundingClientRect().height + 12);
-          ipcRenderer.send('tray-menu-resize', { height: desired });
+          const height = Math.ceil(container.getBoundingClientRect().height + 8);
+          ipcRenderer.send('tray-menu-resize', { height });
         });
       </script>
     </body>
@@ -2264,15 +2819,19 @@ app.whenReady().then(() => {
     // Initialize logger
     const logDir = path.join(app.getPath('userData'), 'logs');
     logger = new Logger(logDir);
-    logger.info('Application starting', { version: app.getVersion() });
+    logger.info('Application starting', { version: getAppVersion() });
 
-    // Create window
-    createWindow();
+    // Create splash + preload main window silently
+    createSplashWindow();
+    const mainReadyPromise = createWindow({ autoShow: false });
     
     // Create tray if enabled
     if (store.get('settings.minimizeToTray')) {
         createTray();
     }
+
+    revealMainWindowAfterSplash(mainReadyPromise)
+        .catch(error => logger?.warn?.('Splash reveal failed', { error: error?.message || error }));
 
     // Configure backups
     startAutoBackupTimer();
@@ -2289,7 +2848,7 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
+        createWindow({ autoShow: true });
     } else {
         mainWindow?.show();
     }
@@ -2611,6 +3170,72 @@ ipcMain.handle('add-attack-record', (event, record) => {
     return { success: true, stats, added, trimmed, removedDuplicates, record: persistedRecord };
 });
 
+ipcMain.handle('save-attack-history', (_event, history) => {
+    try {
+        if (!Array.isArray(history)) {
+            return { success: false, error: 'Invalid history data' };
+        }
+        const { history: cleaned } = sanitizeAttackHistory(history);
+        store.set('attackHistory', cleaned);
+        logger?.info('Attack history saved', { count: cleaned.length });
+        return { success: true, count: cleaned.length };
+    } catch (error) {
+        logger?.error('Failed to save attack history', { error: error.message });
+        return { success: false, error: error.message };
+    }
+});
+
+// ============================================================================
+// IPC HANDLERS - BOUNTIES
+// ============================================================================
+
+const BOUNTY_STORE_DEFAULT = {
+    stats: null,
+    watchlist: [],
+    lastAlertedReceived: null,
+    alert: { active: false, delta: 0 }
+};
+
+ipcMain.handle('get-bounties', () => {
+    const stored = store.get('bounties', BOUNTY_STORE_DEFAULT);
+    const alert = (stored && typeof stored.alert === 'object') ? stored.alert : {};
+
+    return {
+        stats: stored?.stats || null,
+        watchlist: Array.isArray(stored?.watchlist) ? stored.watchlist : [],
+        lastAlertedReceived: Number.isFinite(stored?.lastAlertedReceived) ? stored.lastAlertedReceived : null,
+        alert: {
+            active: !!alert.active,
+            delta: Number.isFinite(alert.delta) ? alert.delta : 0
+        }
+    };
+});
+
+ipcMain.handle('save-bounties', (event, bountyState) => {
+    if (!bountyState || typeof bountyState !== 'object') {
+        return { success: false, error: 'Invalid bounty payload' };
+    }
+
+    const alert = bountyState.alert && typeof bountyState.alert === 'object'
+        ? {
+            active: !!bountyState.alert.active,
+            delta: Number.isFinite(bountyState.alert.delta) ? bountyState.alert.delta : 0
+        }
+        : { active: false, delta: 0 };
+
+    const normalized = {
+        stats: bountyState.stats || null,
+        watchlist: Array.isArray(bountyState.watchlist) ? bountyState.watchlist : [],
+        lastAlertedReceived: Number.isFinite(bountyState.lastAlertedReceived)
+            ? bountyState.lastAlertedReceived
+            : null,
+        alert
+    };
+
+    store.set('bounties', normalized);
+    return { success: true };
+});
+
 // ============================================================================
 // IPC HANDLERS - STATISTICS
 // ============================================================================
@@ -2624,6 +3249,20 @@ ipcMain.handle('increment-stat', (event, statName) => {
     stats[statName] = (stats[statName] || 0) + 1;
     store.set('statistics', stats);
     return stats[statName];
+});
+
+ipcMain.handle('save-statistics', (_event, statistics) => {
+    try {
+        if (!statistics || typeof statistics !== 'object') {
+            return { success: false, error: 'Invalid statistics data' };
+        }
+        store.set('statistics', statistics);
+        logger?.info('Statistics saved');
+        return { success: true };
+    } catch (error) {
+        logger?.error('Failed to save statistics', { error: error.message });
+        return { success: false, error: error.message };
+    }
 });
 
 // ============================================================================
@@ -2808,7 +3447,7 @@ ipcMain.on('show-notification', (event, { title, body }) => {
 
 ipcMain.handle('get-app-info', () => {
     return {
-        version: app.getVersion(),
+        version: getAppVersion(),
         name: app.getName(),
         path: app.getPath('userData'),
         platform: process.platform,
@@ -3083,6 +3722,325 @@ ipcMain.on('close-connection-dialog', () => {
             // Trigger WiFi icon update in main window
             if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.webContents.send('connection-check-completed');
+            }
+        }, 100);
+    }
+});
+
+// ============================================================================
+// IPC HANDLERS - BACKUP DIALOG
+// ============================================================================
+
+let backupWindow = null;
+
+ipcMain.handle('open-backup-dialog', () => {
+    if (backupWindow && !backupWindow.isDestroyed()) {
+        backupWindow.focus();
+        return { success: true, alreadyOpen: true };
+    }
+
+    backupWindow = new BrowserWindow({
+        width: 580,
+        height: 720,
+        frame: false,
+        transparent: true,
+        backgroundColor: '#00000000',
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        parent: mainWindow,
+        modal: true,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload-backup.js')
+        },
+        show: false
+    });
+
+    backupWindow.loadFile('backup.html');
+
+    backupWindow.once('ready-to-show', () => {
+        backupWindow.show();
+    });
+
+    backupWindow.on('closed', () => {
+        backupWindow = null;
+    });
+
+    return { success: true, alreadyOpen: false };
+});
+
+ipcMain.handle('backup-get-current-data', () => {
+    return {
+        targets: store.get('targets', []),
+        groups: store.get('groups', []),
+        attackHistory: store.get('attackHistory', []),
+        statistics: store.get('statistics', {})
+    };
+});
+
+ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
+});
+
+ipcMain.handle('backup-export', async (event, data) => {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const result = await dialog.showSaveDialog(backupWindow || mainWindow, {
+            title: 'Export Backup',
+            defaultPath: `torn-tracker-backup-${timestamp}.json`,
+            filters: [
+                { name: 'JSON Files', extensions: ['json'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+
+        if (result.canceled) {
+            return { success: false, cancelled: true };
+        }
+
+        fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2));
+        store.set('lastBackup', new Date().toISOString());
+        logger?.info('Backup exported via dialog', { file: result.filePath });
+
+        return {
+            success: true,
+            filename: path.basename(result.filePath),
+            path: result.filePath
+        };
+    } catch (error) {
+        logger?.error('Backup export failed', { error: error.message });
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('backup-import', async (event, options) => {
+    try {
+        const { data, conflictResolution } = options;
+        const imported = {
+            targets: 0,
+            groups: 0,
+            attackHistory: 0,
+            statistics: false,
+            settings: false
+        };
+
+        // Create a backup before importing
+        createBackup({ reason: 'pre-import' });
+
+        // Import targets
+        if (data.targets && Array.isArray(data.targets)) {
+            const currentTargets = store.get('targets', []);
+
+            if (conflictResolution === 'replace') {
+                store.set('targets', data.targets);
+                imported.targets = data.targets.length;
+            } else if (conflictResolution === 'skip') {
+                const existingIds = new Set(currentTargets.map(t => t.userId));
+                const newTargets = data.targets.filter(t => !existingIds.has(t.userId));
+                store.set('targets', [...currentTargets, ...newTargets]);
+                imported.targets = newTargets.length;
+            } else {
+                // merge (default)
+                const targetMap = new Map(currentTargets.map(t => [t.userId, t]));
+                for (const target of data.targets) {
+                    targetMap.set(target.userId, { ...targetMap.get(target.userId), ...target });
+                }
+                store.set('targets', Array.from(targetMap.values()));
+                imported.targets = data.targets.length;
+            }
+        }
+
+        // Import groups
+        if (data.groups && Array.isArray(data.groups)) {
+            const currentGroups = store.get('groups', []);
+
+            if (conflictResolution === 'replace') {
+                // Always keep the default group
+                const defaultGroup = currentGroups.find(g => g.isDefault) ||
+                    { id: 'default', name: 'All Targets', color: '#007acc', isDefault: true };
+                const importedGroups = data.groups.filter(g => !g.isDefault);
+                store.set('groups', [defaultGroup, ...importedGroups]);
+                imported.groups = importedGroups.length;
+            } else if (conflictResolution === 'skip') {
+                const existingIds = new Set(currentGroups.map(g => g.id));
+                const newGroups = data.groups.filter(g => !existingIds.has(g.id) && !g.isDefault);
+                store.set('groups', [...currentGroups, ...newGroups]);
+                imported.groups = newGroups.length;
+            } else {
+                // merge (default)
+                const groupMap = new Map(currentGroups.map(g => [g.id, g]));
+                for (const group of data.groups) {
+                    if (!group.isDefault) {
+                        groupMap.set(group.id, { ...groupMap.get(group.id), ...group });
+                    }
+                }
+                store.set('groups', Array.from(groupMap.values()));
+                imported.groups = data.groups.filter(g => !g.isDefault).length;
+            }
+        }
+
+        // Import attack history
+        if (data.attackHistory && Array.isArray(data.attackHistory)) {
+            const currentHistory = store.get('attackHistory', []);
+
+            if (conflictResolution === 'replace') {
+                const sanitized = sanitizeAttackHistory(data.attackHistory);
+                store.set('attackHistory', sanitized.history);
+                imported.attackHistory = sanitized.history.length;
+            } else if (conflictResolution === 'skip') {
+                const existingIds = new Set(currentHistory.map(h => h.id));
+                const newHistory = data.attackHistory.filter(h => !existingIds.has(h.id));
+                const merged = [...currentHistory, ...newHistory];
+                const sanitized = sanitizeAttackHistory(merged);
+                store.set('attackHistory', sanitized.history);
+                imported.attackHistory = newHistory.length;
+            } else {
+                // merge (default)
+                const historyMap = new Map(currentHistory.map(h => [h.id, h]));
+                for (const record of data.attackHistory) {
+                    historyMap.set(record.id, record);
+                }
+                const merged = Array.from(historyMap.values());
+                const sanitized = sanitizeAttackHistory(merged);
+                store.set('attackHistory', sanitized.history);
+                imported.attackHistory = data.attackHistory.length;
+            }
+        }
+
+        // Import statistics
+        if (data.statistics && typeof data.statistics === 'object') {
+            const currentStats = store.get('statistics', {});
+
+            if (conflictResolution === 'replace') {
+                store.set('statistics', data.statistics);
+            } else {
+                // For merge and skip, add to existing stats
+                store.set('statistics', {
+                    totalAttacks: (currentStats.totalAttacks || 0) + (data.statistics.totalAttacks || 0),
+                    targetsAdded: (currentStats.targetsAdded || 0) + (data.statistics.targetsAdded || 0),
+                    targetsRemoved: (currentStats.targetsRemoved || 0) + (data.statistics.targetsRemoved || 0),
+                    apiCallsMade: (currentStats.apiCallsMade || 0) + (data.statistics.apiCallsMade || 0)
+                });
+            }
+            imported.statistics = true;
+        }
+
+        // Import settings (excluding sensitive data)
+        if (data.settings && typeof data.settings === 'object') {
+            const currentSettings = store.get('settings', {});
+            const { apiKey, tornStatsApiKey, ...safeSettings } = data.settings;
+
+            if (conflictResolution === 'replace') {
+                store.set('settings', {
+                    ...safeSettings,
+                    apiKey: currentSettings.apiKey,
+                    tornStatsApiKey: currentSettings.tornStatsApiKey
+                });
+            } else {
+                store.set('settings', {
+                    ...currentSettings,
+                    ...safeSettings,
+                    apiKey: currentSettings.apiKey,
+                    tornStatsApiKey: currentSettings.tornStatsApiKey
+                });
+            }
+            imported.settings = true;
+        }
+
+        logger?.info('Backup imported via dialog', { imported, conflictResolution });
+
+        // Notify main window to refresh
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('backup-imported');
+        }
+
+        return { success: true, imported };
+    } catch (error) {
+        logger?.error('Backup import failed', { error: error.message });
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('backup-get-paths', () => {
+    return {
+        default: getBackupDir(),
+        desktop: app.getPath('desktop'),
+        documents: app.getPath('documents'),
+        downloads: app.getPath('downloads')
+    };
+});
+
+ipcMain.handle('backup-choose-directory', async () => {
+    try {
+        const result = await dialog.showOpenDialog(backupWindow || mainWindow, {
+            title: 'Select Backup Destination',
+            properties: ['openDirectory', 'createDirectory']
+        });
+
+        if (result.canceled || !result.filePaths.length) {
+            return { cancelled: true };
+        }
+
+        return { path: result.filePaths[0] };
+    } catch (error) {
+        logger?.error('Choose directory failed', { error: error.message });
+        return { error: error.message };
+    }
+});
+
+ipcMain.handle('backup-export-to-path', async (event, options) => {
+    try {
+        const { data, directory, filename, openFolder } = options;
+
+        // Ensure directory exists
+        if (!fs.existsSync(directory)) {
+            fs.mkdirSync(directory, { recursive: true });
+        }
+
+        const filePath = path.join(directory, filename);
+
+        // Write the file
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+        store.set('lastBackup', new Date().toISOString());
+
+        logger?.info('Backup exported to path', { file: filePath });
+
+        // Open folder if requested
+        if (openFolder) {
+            const { shell } = require('electron');
+            shell.showItemInFolder(filePath);
+        }
+
+        return {
+            success: true,
+            filename: filename,
+            path: filePath
+        };
+    } catch (error) {
+        logger?.error('Backup export to path failed', { error: error.message });
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('backup-reveal-in-folder', async (event, filePath) => {
+    try {
+        const { shell } = require('electron');
+        shell.showItemInFolder(filePath);
+        return { success: true };
+    } catch (error) {
+        logger?.error('Reveal in folder failed', { error: error.message });
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.on('close-backup-dialog', () => {
+    if (backupWindow && !backupWindow.isDestroyed()) {
+        backupWindow.hide();
+        setTimeout(() => {
+            if (backupWindow && !backupWindow.isDestroyed()) {
+                backupWindow.close();
             }
         }, 100);
     }

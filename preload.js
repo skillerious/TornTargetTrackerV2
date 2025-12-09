@@ -42,12 +42,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // ========================================================================
     getAttackHistory: () => ipcRenderer.invoke('get-attack-history'),
     addAttackRecord: (record) => ipcRenderer.invoke('add-attack-record', record),
+    saveAttackHistory: (history) => ipcRenderer.invoke('save-attack-history', history),
+
+    // ========================================================================
+    // BOUNTIES
+    // ========================================================================
+    getBounties: () => ipcRenderer.invoke('get-bounties'),
+    saveBounties: (bounties) => ipcRenderer.invoke('save-bounties', bounties),
 
     // ========================================================================
     // STATISTICS
     // ========================================================================
     getStatistics: () => ipcRenderer.invoke('get-statistics'),
     incrementStat: (statName) => ipcRenderer.invoke('increment-stat', statName),
+    saveStatistics: (statistics) => ipcRenderer.invoke('save-statistics', statistics),
 
     // ========================================================================
     // BACKUP & RESTORE
@@ -98,6 +106,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     checkTornApiConnection: () => ipcRenderer.invoke('check-torn-api'),
     checkTornStatsConnection: () => ipcRenderer.invoke('check-tornstats-api'),
     openConnectionDialog: () => ipcRenderer.invoke('open-connection-dialog'),
+
+    // ========================================================================
+    // BACKUP DIALOG
+    // ========================================================================
+    openBackupDialog: () => ipcRenderer.invoke('open-backup-dialog'),
+    onBackupImported: (callback) => {
+        ipcRenderer.on('backup-imported', () => callback());
+        return () => ipcRenderer.removeListener('backup-imported', callback);
+    },
+
+    // ========================================================================
+    // BACKUP & RESTORE (Integrated View)
+    // ========================================================================
+    backupGetPaths: () => ipcRenderer.invoke('backup-get-paths'),
+    backupChooseDirectory: () => ipcRenderer.invoke('backup-choose-directory'),
+    backupExportToPath: (options) => ipcRenderer.invoke('backup-export-to-path', options),
+    backupRevealInFolder: (filePath) => ipcRenderer.invoke('backup-reveal-in-folder', filePath),
+    backupImport: (options) => ipcRenderer.invoke('backup-import', options),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
+    // Generic invoke for direct IPC channel access (used by backup view)
+    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
 
     // ========================================================================
     // LOGGING

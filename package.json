@@ -1,6 +1,6 @@
 {
   "name": "torn-target-tracker",
-  "version": "2.0.0",
+  "version": "2.4.0",
   "description": "Premium Torn.com Target Tracker - VS Code Style",
   "main": "main.js",
   "scripts": {
@@ -28,7 +28,18 @@
       "output": "dist"
     },
     "files": [
-      "**/*",
+      "main.js",
+      "preload.js",
+      "preload-connection.js",
+      "index.html",
+      "connection.html",
+      "splash.html",
+      "version.json",
+      "src/**/*",
+      "styles/**/*",
+      "assets/**/*",
+      "package.json",
+      "node_modules/**/*",
       "!dist/**"
     ],
     "win": {
