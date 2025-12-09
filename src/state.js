@@ -30,7 +30,8 @@ class AppState {
             refreshInterval: 30,
             notifications: true,
             soundEnabled: false,
-            compactMode: false,
+            soundVolume: 50,
+            compactMode: true,
             autoRefresh: true,
             showOfflineTargets: true,
             confirmBeforeAttack: false,
@@ -44,6 +45,9 @@ class AppState {
             notifyOnlyMonitored: false,
             notifyOnHospitalRelease: false,
             notifyOnJailRelease: false,
+            notifyOnTargetAdded: true,
+            notifyOnTargetRemoved: false,
+            notifyOnStatusChange: false,
             autoBackupEnabled: false,
             autoBackupInterval: 7, // days
             backupRetention: 10,
@@ -55,6 +59,7 @@ class AppState {
             confirmBeforeDelete: true,
             showStatusCountBadges: true,
             playAttackSound: false,
+            doNotAttackRecentActivityDays: 5, // 0 = disabled, otherwise warn if last activity within X days
             timestampFormat: '12h', // '12h' or '24h'
             listDensity: 'comfortable', // 'compact', 'comfortable', 'spacious'
             sortRememberLast: true,
@@ -75,6 +80,15 @@ class AppState {
 
         // Attack history
         this.attackHistory = [];
+
+        // Bounties
+        this.bounties = {
+            stats: null,
+            watchlist: [],
+            lastAlertedReceived: null,
+            alert: { active: false, delta: 0 }
+        };
+        this.bountyExpiryMs = 7 * 24 * 60 * 60 * 1000;
 
         // Target cache
         this.targetCache = new Map();
@@ -107,6 +121,7 @@ class AppState {
         // Connection state
         this.isOnline = true;
         this.lastConnectionCheck = null;
+        this.connectionCheckTimer = null;
 
         // Event system
         this.listeners = new Map();
@@ -157,7 +172,9 @@ class AppState {
             // Load groups
             const savedGroups = await window.electronAPI.getGroups();
             this.groups = savedGroups.length > 0 ? savedGroups : [
-                { id: 'default', name: 'All Targets', color: '#007acc', isDefault: true, noAttack: false }
+                { id: 'default', name: 'All Targets', color: '#007acc', isDefault: true, noAttack: false },
+                { id: 'mug', name: 'Mug', color: '#4ec9b0', isDefault: false, noAttack: false },
+                { id: 'chain', name: 'Chain', color: '#ce9178', isDefault: false, noAttack: false }
             ];
 
             // Migrate groups to add noAttack flag if missing
@@ -193,6 +210,16 @@ class AppState {
             const refreshedStats = await window.electronAPI.getStatistics();
             this.statistics = { ...this.statistics, ...refreshedStats };
             this.emit('attack-history-changed', this.attackHistory);
+
+            // Load bounties
+            if (window.electronAPI.getBounties) {
+                const storedBounties = await window.electronAPI.getBounties();
+                this.bounties = this.normalizeBountyState(storedBounties);
+                if (this.bounties.alert?.active) {
+                    this.emit('bounty-alert', this.bounties.alert);
+                }
+                this.emit('bounties-changed', this.getBountyState());
+            }
 
             // Emit ready events
             this.emit('initialized');
@@ -305,6 +332,18 @@ class AppState {
         this.emit('statistics-changed');
         this.incrementStatistic('targetsAdded', 1);
 
+        // Notify on target added
+        if (this.settings.notifications && this.settings.notifyOnTargetAdded) {
+            const displayName = hydrated.customName || hydrated.name || `User ${uid}`;
+            window.electronAPI.showNotification(
+                'Target Added',
+                `${displayName} has been added to your target list`
+            );
+            if (this.settings.soundEnabled) {
+                this.emit('play-notification-sound');
+            }
+        }
+
         // Fetch real data if API key is set
         if (this.api.hasApiKey()) {
             this.refreshTarget(uid);
@@ -388,6 +427,10 @@ class AppState {
         const uid = parseInt(userId, 10);
         if (!this.targets.has(uid)) return false;
 
+        // Store target info for notification before removing
+        const target = this.targets.get(uid);
+        const displayName = target?.getDisplayName?.() || target?.customName || target?.name || `User ${uid}`;
+
         this.targets.delete(uid);
         await this.saveTargets();
 
@@ -407,6 +450,17 @@ class AppState {
         this.statistics.targetsRemoved = (this.statistics.targetsRemoved || 0) + 1;
         this.emit('statistics-changed');
         this.incrementStatistic('targetsRemoved', 1);
+
+        // Notify on target removed
+        if (this.settings.notifications && this.settings.notifyOnTargetRemoved) {
+            window.electronAPI.showNotification(
+                'Target Removed',
+                `${displayName} has been removed from your target list`
+            );
+            if (this.settings.soundEnabled) {
+                this.emit('play-notification-sound');
+            }
+        }
 
         return true;
     }
@@ -652,6 +706,41 @@ class AppState {
         this.emit('target-updated', target);
 
         return target.isFavorite;
+    }
+
+    /**
+     * Set favorite status for multiple targets
+     */
+    async setFavoritesForTargets(userIds, isFavorite) {
+        const ids = Array.from(new Set((userIds || [])
+            .map(id => parseInt(id, 10))
+            .filter(id => Number.isFinite(id))));
+        if (!ids.length) {
+            return { success: false, error: 'No targets selected' };
+        }
+
+        const updated = [];
+        ids.forEach(uid => {
+            const target = this.targets.get(uid);
+            if (target && target.isFavorite !== isFavorite) {
+                target.isFavorite = isFavorite;
+                updated.push(target);
+            }
+        });
+
+        if (!updated.length) {
+            return { success: true, updated: 0, isFavorite };
+        }
+
+        try {
+            await this.saveTargetsImmediate();
+        } catch (error) {
+            this.log('error', 'Failed to update favorites', { error: error.message });
+            return { success: false, error: 'Failed to save favorites' };
+        }
+
+        updated.forEach(t => this.emit('target-updated', t));
+        return { success: true, updated: updated.length, isFavorite };
     }
 
     /**
@@ -1294,7 +1383,18 @@ class AppState {
             this.emit('target-updated', target);
             return payload;
         } catch (error) {
-            const payload = {
+            const cachedIntel = existing ? {
+                ...existing,
+                stats: existing.stats ? { ...existing.stats } : null,
+                compare: existing.compare ? { ...existing.compare } : null,
+                attacks: existing.attacks ? { ...existing.attacks } : null,
+                message: existing.message || 'Using cached intelligence',
+                status: existing.status !== undefined ? existing.status : true,
+                error: error.message,
+                lastErrorAt: now
+            } : null;
+
+            const payload = cachedIntel || {
                 source: 'tornstats',
                 status: false,
                 message: error.message || 'Failed to fetch intelligence',
@@ -1307,8 +1407,8 @@ class AppState {
             this.targets.set(uid, target);
             try {
                 await this.saveTargetsImmediate();
-            } catch {
-                // already logged elsewhere
+            } catch (e) {
+                // Error already logged in saveTargetsImmediate
             }
             this.emit('target-updated', target);
             return payload;
@@ -1476,8 +1576,8 @@ class AppState {
             this.targets.set(uid, fallback);
             try {
                 await this.saveTargetsImmediate();
-            } catch {
-                // Already logged inside saveTargetsImmediate
+            } catch (e) {
+                // Error already logged in saveTargetsImmediate
             }
             this.emit('target-updated', fallback);
             return fallback;
@@ -1512,8 +1612,8 @@ class AppState {
             this.targets.set(uid, info);
             try {
                 await this.saveTargetsImmediate();
-            } catch {
-                // already logged inside saveTargetsImmediate
+            } catch (e) {
+                // Error already logged in saveTargetsImmediate
             }
             this.emit('target-updated', info);
             return info;
@@ -1569,6 +1669,19 @@ class AppState {
                     window.electronAPI.showNotification(
                         'Target Left Jail',
                         `${info.getDisplayName()} is out of jail`
+                    );
+                    notificationShown = true;
+                }
+            }
+
+            // Notify on general status change (if not already notified by specific events above)
+            if (existing && this.settings.notifyOnStatusChange && shouldNotify && !notificationShown) {
+                const oldStatus = existing.status?.state || existing.status?.description || 'Unknown';
+                const newStatus = info.status?.state || info.status?.description || 'Unknown';
+                if (oldStatus !== newStatus && oldStatus !== 'Unknown') {
+                    window.electronAPI.showNotification(
+                        'Target Status Changed',
+                        `${info.getDisplayName()}: ${oldStatus} → ${newStatus}`
                     );
                     notificationShown = true;
                 }
@@ -1876,6 +1989,340 @@ class AppState {
     }
 
     // ========================================================================
+    // BOUNTIES
+    // ========================================================================
+
+    normalizeBountyState(data = {}) {
+        const alert = data && typeof data.alert === 'object' ? data.alert : {};
+        const stats = data.stats ? this.normalizeBountyStats(data.stats) : null;
+        const watchlist = Array.isArray(data.watchlist)
+            ? data.watchlist.map(entry => this.normalizeBountyEntry(entry)).filter(Boolean)
+            : [];
+        const baselineReceived = Number.isFinite(data.lastAlertedReceived)
+            ? data.lastAlertedReceived
+            : (stats?.received ?? null);
+        const inferredDelta = stats && stats.received !== null && baselineReceived !== null
+            ? Math.max(0, stats.received - baselineReceived)
+            : 0;
+
+        return {
+            stats,
+            watchlist,
+            lastAlertedReceived: baselineReceived,
+            alert: {
+                active: alert.active || inferredDelta > 0,
+                delta: Number.isFinite(alert.delta) ? alert.delta : inferredDelta
+            }
+        };
+    }
+
+    normalizeBountyStats(stats = {}) {
+        if (!stats || typeof stats !== 'object') return null;
+        return {
+            collected: this.toNumberOrNull(stats.collected),
+            placed: this.toNumberOrNull(stats.placed),
+            received: this.toNumberOrNull(stats.received),
+            reward: this.toNumberOrNull(stats.reward),
+            spent: this.toNumberOrNull(stats.spent),
+            valueOnYou: this.toNumberOrNull(stats.valueOnYou),
+            lastUpdated: stats.lastUpdated || Date.now(),
+            source: stats.source || 'api'
+        };
+    }
+
+    normalizeBountyEntry(entry) {
+        if (!entry || typeof entry !== 'object') return null;
+        const now = Date.now();
+        const addedAt = Number(entry.addedAt) || now;
+        const expiresAt = Number(entry.expiresAt) || (addedAt + this.bountyExpiryMs);
+        const targetId = InputParser.isValidUserId(entry.targetId) ? parseInt(entry.targetId, 10) : null;
+        const reward = this.parseMoneyValue(entry.reward);
+
+        return {
+            id: entry.id || `bounty-${addedAt}-${Math.floor(Math.random() * 1000)}`,
+            targetId,
+            targetName: this.safeBountyName(entry.targetName, targetId),
+            reward,
+            addedAt,
+            expiresAt,
+            claimedAt: entry.claimedAt ? Number(entry.claimedAt) : null,
+            notes: (entry.notes || '').toString().slice(0, 500)
+        };
+    }
+
+    parseMoneyValue(value) {
+        if (value === null || value === undefined || value === '') return null;
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? Math.max(0, Math.round(value)) : null;
+        }
+        if (typeof value === 'string') {
+            const cleaned = value.replace(/[^0-9.-]/g, '');
+            if (!cleaned) return null;
+            const num = Number(cleaned);
+            return Number.isFinite(num) ? Math.max(0, Math.round(num)) : null;
+        }
+        return null;
+    }
+
+    isBountyExpired(entry, now = Date.now()) {
+        if (!entry) return false;
+        if (!entry.expiresAt) return false;
+        return entry.expiresAt < now;
+    }
+
+    getBountyState() {
+        return {
+            stats: this.bounties.stats ? { ...this.bounties.stats } : null,
+            watchlist: this.bounties.watchlist.map(item => ({ ...item })),
+            alert: { ...(this.bounties.alert || { active: false, delta: 0 }) }
+        };
+    }
+
+    getBountyStats() {
+        const defaults = {
+            collected: 0,
+            placed: 0,
+            received: 0,
+            reward: null,
+            spent: null,
+            valueOnYou: null,
+            lastUpdated: null,
+            source: null
+        };
+        if (!this.bounties.stats) return defaults;
+        return { ...defaults, ...this.bounties.stats };
+    }
+
+    getBountyWatchlist(options = {}) {
+        const includeExpired = options.includeExpired !== false;
+        const includeClaimed = options.includeClaimed !== false;
+        const now = Date.now();
+
+        return this.bounties.watchlist
+            .map(item => ({
+                ...item,
+                isExpired: this.isBountyExpired(item, now),
+                isClaimed: !!item.claimedAt
+            }))
+            .filter(item => (includeExpired || !item.isExpired) && (includeClaimed || !item.isClaimed))
+            .sort((a, b) => (a.expiresAt || 0) - (b.expiresAt || 0));
+    }
+
+    getActiveBountyForTarget(userId) {
+        const uid = parseInt(userId, 10);
+        if (!Number.isFinite(uid)) return null;
+        return this.bounties.watchlist.find(item =>
+            item.targetId === uid &&
+            !item.claimedAt &&
+            !this.isBountyExpired(item)
+        ) || null;
+    }
+
+    hasActiveBounty(userId) {
+        return !!this.getActiveBountyForTarget(userId);
+    }
+
+    async addBountyEntry(targetInput, rewardInput = null) {
+        const reward = this.parseMoneyValue(rewardInput);
+        const targetId = InputParser.extractUserId(targetInput || '');
+        const providedName = (targetInput || '').toString().trim();
+
+        // Determine target name - fetch from API if only ID was provided
+        let targetName;
+        const isOnlyId = targetId && (!providedName || providedName === String(targetId));
+
+        if (isOnlyId && this.api && this.api.hasApiKey()) {
+            // Try to fetch name from API
+            try {
+                const userData = await this.api.fetchUser(targetId);
+                targetName = (userData?.name && !userData?.error)
+                    ? userData.name
+                    : this.safeBountyName(providedName, targetId);
+            } catch (err) {
+                this.log('warn', 'Failed to fetch bounty target name', { targetId, error: err.message });
+                targetName = this.safeBountyName(providedName, targetId);
+            }
+        } else if (providedName && providedName !== String(targetId)) {
+            targetName = providedName;
+        } else {
+            targetName = this.safeBountyName(providedName, targetId);
+        }
+
+        const now = Date.now();
+        const expiresAt = now + this.bountyExpiryMs;
+
+        const existingIndex = this.bounties.watchlist.findIndex(item =>
+            item.targetId &&
+            targetId &&
+            item.targetId === targetId &&
+            !item.claimedAt &&
+            !this.isBountyExpired(item)
+        );
+
+        let entry;
+        if (existingIndex >= 0) {
+            entry = {
+                ...this.bounties.watchlist[existingIndex],
+                reward: reward ?? this.bounties.watchlist[existingIndex].reward,
+                targetName
+            };
+            this.bounties.watchlist[existingIndex] = entry;
+        } else {
+            entry = {
+                id: `bounty-${now}-${Math.floor(Math.random() * 100000)}`,
+                targetId: targetId || null,
+                targetName,
+                reward,
+                addedAt: now,
+                expiresAt,
+                claimedAt: null,
+                notes: ''
+            };
+            this.bounties.watchlist.unshift(entry);
+        }
+
+        await this.saveBounties();
+        this.emit('bounties-changed', this.getBountyState());
+        return { entry, updated: existingIndex >= 0 };
+    }
+
+    async removeBountyEntry(entryId) {
+        const initialLength = this.bounties.watchlist.length;
+        this.bounties.watchlist = this.bounties.watchlist.filter(item => item.id !== entryId);
+
+        if (this.bounties.watchlist.length !== initialLength) {
+            await this.saveBounties();
+            this.emit('bounties-changed', this.getBountyState());
+            return true;
+        }
+        return false;
+    }
+
+    async markBountyClaimed(entryId, claimed = true) {
+        const idx = this.bounties.watchlist.findIndex(item => item.id === entryId);
+        if (idx === -1) return false;
+
+        this.bounties.watchlist[idx] = {
+            ...this.bounties.watchlist[idx],
+            claimedAt: claimed ? Date.now() : null
+        };
+
+        await this.saveBounties();
+        this.emit('bounties-changed', this.getBountyState());
+        return true;
+    }
+
+    async refreshBountyStats() {
+        if (!this.api || !this.api.hasApiKey()) {
+            throw new Error('API key not configured');
+        }
+
+        const result = await this.api.fetchPersonalStats();
+        if (result.error) {
+            throw new Error(result.error);
+        }
+
+        const mapped = this.mapPersonalStatsToBountyStats(result.personalstats || {});
+        const previousStats = this.bounties.stats || {};
+        const stats = {
+            collected: mapped.collected ?? previousStats.collected ?? 0,
+            placed: mapped.placed ?? previousStats.placed ?? 0,
+            received: mapped.received ?? previousStats.received ?? 0,
+            reward: mapped.reward ?? previousStats.reward ?? null,
+            spent: mapped.spent ?? previousStats.spent ?? null,
+            valueOnYou: mapped.valueOnYou ?? previousStats.valueOnYou ?? null,
+            lastUpdated: Date.now(),
+            source: 'api'
+        };
+
+        const alertBaseline = Number.isFinite(this.bounties.lastAlertedReceived)
+            ? this.bounties.lastAlertedReceived
+            : (previousStats.received ?? stats.received ?? 0);
+        const alertDelta = (stats.received !== null && alertBaseline !== null)
+            ? stats.received - alertBaseline
+            : 0;
+
+        if (!Number.isFinite(this.bounties.lastAlertedReceived) && stats.received !== null) {
+            this.bounties.lastAlertedReceived = stats.received;
+        }
+
+        this.bounties.stats = stats;
+        this.bounties.alert = {
+            active: alertDelta > 0,
+            delta: alertDelta > 0 ? alertDelta : 0
+        };
+
+        await this.saveBounties();
+        this.emit('bounties-changed', this.getBountyState());
+        if (this.bounties.alert.active) {
+            this.emit('bounty-alert', this.bounties.alert);
+        }
+
+        return stats;
+    }
+
+    async dismissBountyAlert() {
+        if (this.bounties.stats && Number.isFinite(this.bounties.stats.received)) {
+            this.bounties.lastAlertedReceived = this.bounties.stats.received;
+        }
+        this.bounties.alert = { active: false, delta: 0 };
+        await this.saveBounties();
+        this.emit('bounties-changed', this.getBountyState());
+    }
+
+    getBountyAlert() {
+        return this.bounties.alert || { active: false, delta: 0 };
+    }
+
+    async saveBounties() {
+        if (!window.electronAPI?.saveBounties) return;
+        try {
+            await window.electronAPI.saveBounties(this.bounties);
+        } catch (error) {
+            this.log('error', 'Failed to save bounties', { error: error.message });
+        }
+    }
+
+    mapPersonalStatsToBountyStats(personalStats = {}) {
+        const getNumber = (keys) => this.pickFirstNumber(personalStats, keys);
+        return {
+            collected: getNumber(['bountiescollected', 'bounties_collected']),
+            placed: getNumber(['bountiesplaced', 'bounties_placed']),
+            received: getNumber(['bountiesreceived', 'bounties_received']),
+            reward: getNumber(['moneyfrombounties', 'money_bounties_collected', 'bountyrewards', 'totalbountyreward']),
+            spent: getNumber(['moneyspentbounties', 'money_bounties_placed', 'moneyspentonbounties', 'moneyputonbounties']),
+            valueOnYou: getNumber(['highestbounty', 'valueonself', 'bountyvalue', 'value_on_you'])
+        };
+    }
+
+    pickFirstNumber(source, keys = []) {
+        if (!source || typeof source !== 'object') return null;
+        for (const key of keys) {
+            if (key in source) {
+                const num = Number(source[key]);
+                if (Number.isFinite(num)) return num;
+            }
+        }
+        return null;
+    }
+
+    safeBountyName(name, targetId = null) {
+        const trimmed = (name || '').toString().trim();
+        if (trimmed) return trimmed;
+        if (targetId) {
+            const target = this.targets.get(targetId);
+            if (target) return target.getDisplayName();
+            return `User ${targetId}`;
+        }
+        return 'Unknown target';
+    }
+
+    toNumberOrNull(value) {
+        const num = Number(value);
+        return Number.isFinite(num) ? num : null;
+    }
+
+    // ========================================================================
     // SETTINGS
     // ========================================================================
 
@@ -2150,7 +2597,7 @@ class AppState {
         });
 
         // Periodic connection check (every 30 seconds)
-        setInterval(() => {
+        this.connectionCheckTimer = setInterval(() => {
             const wasOnline = this.isOnline;
             const isOnline = navigator.onLine;
 

@@ -1163,6 +1163,108 @@ class TornAPI {
     }
 
     // ========================================================================
+    // PERSONAL STATS
+    // ========================================================================
+
+    /**
+     * Fetch personalstats for the API key owner (used for bounty tracking)
+     * @param {AbortSignal|null} signal
+     * @returns {Promise<{personalstats?: Object, playerId?: number, name?: string, raw?: Object, error?: string, code?: number}>}
+     */
+    async fetchPersonalStats(signal = null) {
+        if (!this.hasApiKey()) {
+            return { error: 'API key not configured' };
+        }
+
+        const url = `${API_CONFIG.BASE_URL}/user/?selections=${API_CONFIG.SELECTIONS.USER_FULL}&key=${this.apiKey}`;
+
+        for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+            if (signal?.aborted) {
+                this.limiter.recordFailure();
+                return { error: 'Request cancelled' };
+            }
+
+            const acquired = await this.limiter.acquire(signal);
+            if (!acquired) {
+                this.limiter.recordFailure();
+                return { error: 'Request cancelled' };
+            }
+
+            try {
+                const response = await this.makeRequest(url, signal);
+                const tornError = this.extractTornError(response);
+
+                if (tornError) {
+                    this.limiter.recordFailure();
+
+                    if (tornError.retryable && attempt < this.maxAttempts) {
+                        const delay = this.calculateBackoff(attempt);
+                        this.limiter.penalize(delay / 1000);
+                        const waited = await this.sleep(delay, signal);
+                        if (!waited) return { error: 'Request cancelled' };
+                        continue;
+                    }
+                    return { error: tornError.userMessage, code: tornError.code };
+                }
+
+                this.limiter.recordSuccess();
+                this.consecutiveFailures = 0;
+                this.lastSuccessfulRequest = Date.now();
+                this.updateConnectionState(true);
+
+                return {
+                    personalstats: response.personalstats || response.personalStats || {},
+                    playerId: this.safeInt(response.player_id || response.playerId),
+                    name: this.safeString(response.name),
+                    raw: response
+                };
+            } catch (error) {
+                this.consecutiveFailures++;
+                this.limiter.recordFailure();
+
+                if (error.name === 'AbortError') {
+                    return { error: 'Request cancelled' };
+                }
+
+                if (error instanceof RateLimitError) {
+                    const delay = error.retryAfter
+                        ? error.retryAfter * 1000
+                        : this.calculateBackoff(attempt);
+                    this.limiter.startCooldown('server-429', delay);
+                    this.limiter.penalize(delay / 1000);
+                    if (this.onRateLimitWarning) {
+                        this.onRateLimitWarning(delay);
+                    }
+                    const waited = await this.sleep(delay, signal);
+                    if (!waited) return { error: 'Request cancelled' };
+                    continue;
+                }
+
+                if (error instanceof NetworkError || error instanceof TimeoutError) {
+                    this.updateConnectionState(false);
+                    if (attempt < this.maxAttempts) {
+                        const delay = this.calculateBackoff(attempt);
+                        const waited = await this.sleep(delay, signal);
+                        if (!waited) return { error: 'Request cancelled' };
+                        continue;
+                    }
+                    return { error: error.message };
+                }
+
+                this.log('error', `Unexpected error fetching personal stats: ${error.message}`, { stack: error.stack });
+                if (attempt >= this.maxAttempts) {
+                    return { error: 'Failed to fetch personal stats' };
+                }
+                const delay = this.calculateBackoff(attempt);
+                const waited = await this.sleep(delay, signal);
+                if (!waited) return { error: 'Request cancelled' };
+            }
+        }
+
+        return { error: 'Failed to fetch personal stats' };
+    }
+
+    // ========================================================================
     // PRIVATE METHODS
     // ========================================================================
 

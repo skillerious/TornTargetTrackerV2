@@ -160,8 +160,10 @@
         aboutAttackableCount: null,
         aboutRefreshInterval: null,
         aboutApiStatus: null,
+        aboutApiIcon: null,
         aboutLastRefresh: null,
         aboutOpenLog: null,
+        aboutProfileLink: null,
         attackPreventionNotifyBtn: null,
 
         // Connection Dialog
@@ -194,6 +196,20 @@
         historyStatStreak: null,
         historyStatTop: null,
 
+        // Bounties
+        bountyAlertBadge: null,
+        bountyAlertBanner: null,
+        bountyAlertDismiss: null,
+        bountyStats: null,
+        bountyStatsUpdated: null,
+        bountyTargetInput: null,
+        bountyRewardInput: null,
+        bountyAddButton: null,
+        bountyList: null,
+        bountyEmptyState: null,
+        bountyWatchlist: null,
+        btnRefreshBountyStats: null,
+
         // Loading
         loadingOverlay: null,
 
@@ -203,6 +219,11 @@
         settingBackupPreop: null,
         settingCloudBackup: null,
         settingCloudProvider: null,
+        cloudProviderDropdown: null,
+        cloudProviderToggle: null,
+        cloudProviderLabel: null,
+        cloudProviderList: null,
+        cloudProviderIcon: null,
         btnCloudPath: null,
         btnCloudDetect: null,
         cloudBackupPath: null,
@@ -221,10 +242,13 @@
     // ========================================================================
 
     let timerInterval = null;
+    let pauseCountdownIntervals = [];
+    let wifiIconInterval = null;
     let contextTargetId = null;
     let contextGroupId = null;
     let contextSubmenuTimer = null;
     let pendingConfirmAction = null;
+    let pendingRecentActivityAction = null;
     let bulkPreviewIds = [];
     let avatarLoadToken = 0;
     let appInfoCache = null;
@@ -260,6 +284,7 @@
         filtered: [],
         highlightIndex: 0
     };
+    let bountyRenderTick = 0;
 
     // ========================================================================
     // MENUBAR CONFIGURATION
@@ -273,9 +298,8 @@
                 { id: 'new-target', label: 'New Target...', shortcut: 'Ctrl+N', enabled: () => appInitialized, action: () => openModal('modal-add-target'), icon: 'menu-new-target.svg' },
                 { id: 'bulk-add', label: 'Bulk Add Targets...', shortcut: 'Ctrl+Shift+B', enabled: () => appInitialized, action: () => openModal('modal-bulk-add'), icon: 'menu-bulk-add.svg' },
                 { type: 'separator' },
-                { id: 'import-targets', label: 'Import Targets...', shortcut: 'Ctrl+Shift+O', enabled: () => appInitialized, action: handleImportTargets, icon: 'menu-import.svg' },
-                { id: 'export-targets', label: 'Export Targets...', shortcut: 'Ctrl+Shift+E', enabled: () => appInitialized, action: handleExportTargets, icon: 'menu-export.svg' },
-                { id: 'backup-now', label: 'Backup Now', shortcut: 'Ctrl+Shift+K', enabled: () => appInitialized, action: handleCreateBackup, icon: 'menu-backup.svg' },
+                { id: 'backup-restore', label: 'Backup & Restore', enabled: () => appInitialized, action: () => switchView('backup'), icon: 'menu-backup.svg' },
+                { id: 'backup-now', label: 'Quick Backup', shortcut: 'Ctrl+Shift+K', enabled: () => appInitialized, action: handleCreateBackup, icon: 'menu-export.svg' },
                 { type: 'separator' },
                 { id: 'settings', label: 'Settings', shortcut: 'Ctrl+,', action: () => switchView('settings'), icon: 'menu-settings.svg' },
                 { type: 'separator' },
@@ -331,6 +355,8 @@
                 { id: 'view-history', label: 'History', shortcut: 'Ctrl+2', checked: () => window.appState.currentView === 'history', action: () => switchView('history'), icon: 'menu-view-history.svg' },
                 { id: 'view-statistics', label: 'Statistics', shortcut: 'Ctrl+3', checked: () => window.appState.currentView === 'statistics', action: () => switchView('statistics'), icon: 'menu-view-statistics.svg' },
                 { id: 'view-loot', label: 'Loot Timer', shortcut: 'Ctrl+4', checked: () => window.appState.currentView === 'loot-timer', action: () => switchView('loot-timer'), icon: 'menu-view-loot.svg' },
+                { id: 'view-bounties', label: 'Bounties', shortcut: 'Ctrl+5', checked: () => window.appState.currentView === 'bounties', action: () => switchView('bounties'), icon: 'menu-view-bounties.svg' },
+                { id: 'view-help', label: 'Help Center', shortcut: 'Ctrl+6', checked: () => window.appState.currentView === 'help', action: () => switchView('help'), icon: 'menu-view-help.svg' },
                 { id: 'view-settings', label: 'Settings', shortcut: 'Ctrl+,', checked: () => window.appState.currentView === 'settings', action: () => switchView('settings'), icon: 'menu-view-settings.svg' },
                 { type: 'separator' },
                 { id: 'toggle-compact', label: 'Compact Mode', type: 'checkbox', checked: () => !!window.appState.settings.compactMode, action: toggleCompactModeSetting, icon: 'menu-compact.svg' },
@@ -342,6 +368,7 @@
             id: 'help',
             label: 'Help',
             items: [
+                { id: 'help-center', label: 'Help Center', shortcut: 'Ctrl+6', action: () => switchView('help'), icon: 'menu-help-center.svg' },
                 { id: 'launch-onboarding', label: 'Launch Onboarding', shortcut: 'F1', action: () => showOnboarding(true), icon: 'menu-onboarding.svg' },
                 { id: 'open-data-folder', label: 'Open Data Folder', enabled: () => appInitialized, action: openDataFolder, icon: 'menu-data-folder.svg' },
                 { id: 'about', label: 'About Torn Target Tracker', action: showAboutModal, icon: 'menu-about.svg' }
@@ -368,7 +395,10 @@
         'menu-view-history.svg': '<path fill="currentColor" d="M13 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V3zm-1 5v5l4 2 .75-1.23L13 11V8h-1z"/>',
         'menu-view-statistics.svg': '<path fill="currentColor" d="M5 19h2V9H5v10zm6 0h-2v-6h2v6zm2 0h2V5h-2v14zm6 0h-2V11h2v8z"/>',
         'menu-view-loot.svg': '<path fill="currentColor" d="M12 2 2 7l10 5 8-4.02V17h2V7L12 2zm0 11.45L4 9.24V17c0 1.1.9 2 2 2h6v-5.55z"/>',
+        'menu-view-bounties.svg': '<path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 5v2h2v2h-2v2h-2v-2H9V9h2V7h2zm-1 12a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"/>',
         'menu-view-settings.svg': '<path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a6.97 6.97 0 0 0-1.63-.94L14.5 2h-5l-.25 2.24a6.97 6.97 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.21 8.16a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.3.64.22l2.39-.96c.5.38 1.05.7 1.63.94L9.5 22h5l.25-2.24c.58-.24 1.13-.56 1.63-.94l2.39.96c.24.08.51 0 .64-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>',
+        'menu-view-help.svg': '<path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 14h-2v-2h2v2zm1.15-5.35-.24.2c-.64.51-.91.9-.91 1.81v.34h-2V12c0-1.22.43-1.98 1.27-2.69l.44-.38c.52-.45.79-.86.79-1.45 0-.81-.65-1.36-1.53-1.36-.93 0-1.51.55-1.6 1.45l-.03.33H8.14l.02-.35c.12-1.94 1.5-3.28 3.75-3.28 2.18 0 3.69 1.26 3.69 3.12 0 1.03-.36 1.79-1.45 2.72z"/>',
+        'menu-help-center.svg': '<path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 14h-2v-2h2v2zm1.15-5.35-.24.2c-.64.51-.91.9-.91 1.81v.34h-2V12c0-1.22.43-1.98 1.27-2.69l.44-.38c.52-.45.79-.86.79-1.45 0-.81-.65-1.36-1.53-1.36-.93 0-1.51.55-1.6 1.45l-.03.33H8.14l.02-.35c.12-1.94 1.5-3.28 3.75-3.28 2.18 0 3.69 1.26 3.69 3.12 0 1.03-.36 1.79-1.45 2.72z"/>',
         'menu-compact.svg': '<path fill="currentColor" d="M4 5h8v6H4V5zm0 8h8v6H4v-6zm10-8h6v4h-6V5zm0 6h6v8h-6v-8z"/>',
         'menu-tray.svg': '<path fill="currentColor" d="M20 13h-5v2h-6v-2H4v6h16v-6zm0-8H4a2 2 0 0 0-2 2v8h4v-2h10v2h4V7a2 2 0 0 0-2-2z"/>',
         'menu-collapse.svg': '<path fill="currentColor" d="M7 10h2V6h4v4h2l-4 4-4-4zm10 4h-2v4H9v-4H7l4-4 4 4z"/>',
@@ -533,8 +563,10 @@
         DOM.aboutAttackableCount = document.getElementById('about-attackable-count');
         DOM.aboutRefreshInterval = document.getElementById('about-refresh-interval');
         DOM.aboutApiStatus = document.getElementById('about-api-status');
+        DOM.aboutApiIcon = document.getElementById('about-api-icon');
         DOM.aboutLastRefresh = document.getElementById('about-last-refresh');
         DOM.aboutOpenLog = document.getElementById('about-open-log');
+        DOM.aboutProfileLink = document.getElementById('about-profile-link');
         DOM.attackPreventionNotifyBtn = document.getElementById('attack-prevention-notify');
 
         // Connection Dialog
@@ -567,6 +599,27 @@
         DOM.historyStatStreak = document.getElementById('history-stat-streak');
         DOM.historyStatTop = document.getElementById('history-stat-top');
 
+        // Bounties
+        DOM.bountyAlertBadge = document.getElementById('bounty-alert-badge');
+        DOM.bountyAlertBanner = document.getElementById('bounty-alert-banner');
+        DOM.bountyAlertDismiss = document.getElementById('bounty-alert-dismiss');
+        DOM.bountyStats = {
+            collected: document.getElementById('stat-bounties-collected'),
+            placed: document.getElementById('stat-bounties-placed'),
+            received: document.getElementById('stat-bounties-received'),
+            reward: document.getElementById('stat-bounty-reward'),
+            spent: document.getElementById('stat-bounty-spent'),
+            valueOnYou: document.getElementById('stat-bounty-value-received')
+        };
+        DOM.bountyStatsUpdated = document.getElementById('bounty-stats-updated');
+        DOM.bountyTargetInput = document.getElementById('bounty-target-id');
+        DOM.bountyRewardInput = document.getElementById('bounty-reward');
+        DOM.bountyAddButton = document.getElementById('btn-add-bounty');
+        DOM.bountyList = document.getElementById('bounty-list');
+        DOM.bountyEmptyState = document.getElementById('bounty-empty-state');
+        DOM.bountyWatchlist = document.getElementById('bounty-watchlist');
+        DOM.btnRefreshBountyStats = document.getElementById('btn-refresh-bounty-stats');
+
         // Loading
         DOM.loadingOverlay = document.getElementById('loading-overlay');
 
@@ -576,6 +629,11 @@
         DOM.settingBackupPreop = document.getElementById('setting-backup-preop');
         DOM.settingCloudBackup = document.getElementById('setting-cloud-backup');
         DOM.settingCloudProvider = document.getElementById('setting-cloud-provider');
+        DOM.cloudProviderDropdown = document.getElementById('cloud-provider-dropdown');
+        DOM.cloudProviderToggle = document.getElementById('cloud-provider-toggle');
+        DOM.cloudProviderLabel = document.getElementById('cloud-provider-label');
+        DOM.cloudProviderList = document.getElementById('cloud-provider-list');
+        DOM.cloudProviderIcon = document.getElementById('cloud-provider-icon');
         DOM.btnCloudPath = document.getElementById('btn-cloud-path');
         DOM.btnCloudDetect = document.getElementById('btn-cloud-detect');
         DOM.cloudBackupPath = document.getElementById('cloud-backup-path');
@@ -1194,6 +1252,17 @@
         DOM.bulkAddBtn?.addEventListener('click', () => openModal('modal-bulk-add'));
         DOM.addGroupBtn?.addEventListener('click', () => openModal('modal-add-group'));
 
+        // Help center quick actions
+        document.getElementById('help-cta-onboarding')?.addEventListener('click', () => showOnboarding(true));
+        document.getElementById('help-cta-settings')?.addEventListener('click', () => switchView('settings'));
+        document.getElementById('help-cta-connection')?.addEventListener('click', () => {
+            refreshConnectionIndicators();
+            openConnectionDialog();
+        });
+        document.getElementById('help-cta-backup')?.addEventListener('click', handleCreateBackup);
+        document.getElementById('help-cta-logs')?.addEventListener('click', openLogsFolder);
+        document.getElementById('help-cta-data')?.addEventListener('click', openDataFolder);
+
         document.getElementById('btn-add-first')?.addEventListener('click', () => openModal('modal-add-target'));
         document.getElementById('btn-bulk-first')?.addEventListener('click', () => openModal('modal-bulk-add'));
 
@@ -1351,6 +1420,15 @@
             showAboutModal();
         });
         DOM.aboutOpenLog?.addEventListener('click', openLogsFolder);
+        DOM.aboutProfileLink?.addEventListener('click', (e) => {
+            e.preventDefault();
+            const url = DOM.aboutProfileLink.href;
+            if (window.electronAPI?.openExternal) {
+                window.electronAPI.openExternal(url);
+            } else {
+                window.open(url, '_blank', 'noreferrer');
+            }
+        });
 
         // Onboarding interactions
         DOM.onboardingTabs?.forEach(tab => {
@@ -1412,6 +1490,20 @@
                     promptSetDefeatTime(bossId);
                 }
             }
+        });
+
+        // Bounties
+        DOM.btnRefreshBountyStats?.addEventListener('click', handleRefreshBountyStats);
+        DOM.bountyAlertDismiss?.addEventListener('click', handleDismissBountyAlert);
+        DOM.bountyAddButton?.addEventListener('click', handleAddBounty);
+        DOM.bountyList?.addEventListener('click', handleBountyListClick);
+        [DOM.bountyTargetInput, DOM.bountyRewardInput].forEach(input => {
+            input?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddBounty();
+                }
+            });
         });
 
         // Settings
@@ -1518,6 +1610,9 @@
             ['setting-notify-monitored', 'notifyOnlyMonitored'],
             ['setting-notify-hospital', 'notifyOnHospitalRelease'],
             ['setting-notify-jail', 'notifyOnJailRelease'],
+            ['setting-notify-added', 'notifyOnTargetAdded'],
+            ['setting-notify-removed', 'notifyOnTargetRemoved'],
+            ['setting-notify-status', 'notifyOnStatusChange'],
             ['setting-auto-backup', 'autoBackupEnabled'],
             ['setting-backup-preop', 'backupBeforeBulk'],
             ['setting-cloud-backup', 'cloudBackupEnabled'],
@@ -1615,8 +1710,73 @@
             window.appState.updateSettings({ maxHistoryEntries: value });
         });
 
+        document.getElementById('setting-recent-activity-days')?.addEventListener('change', (e) => {
+            const value = Math.max(0, Math.min(365, parseInt(e.target.value) || 0));
+            e.target.value = value;
+            window.appState.updateSettings({ doNotAttackRecentActivityDays: value });
+        });
+
+        // Sound volume slider
+        const volumeSliderEl = document.getElementById('setting-sound-volume');
+        const volumeDisplayEl = document.getElementById('volume-value-display');
+        const volumeContainerEl = document.getElementById('setting-volume-container');
+        const testSoundBtn = document.getElementById('btn-test-sound');
+
+        volumeSliderEl?.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value, 10);
+            if (volumeDisplayEl) volumeDisplayEl.textContent = `${value}%`;
+        });
+
+        volumeSliderEl?.addEventListener('change', (e) => {
+            const value = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 50));
+            e.target.value = value;
+            if (volumeDisplayEl) volumeDisplayEl.textContent = `${value}%`;
+            window.appState.updateSettings({ soundVolume: value });
+        });
+
+        testSoundBtn?.addEventListener('click', () => {
+            const currentVolume = parseInt(volumeSliderEl?.value || '50', 10);
+            playSound('notification', currentVolume);
+        });
+
+        // Link soundEnabled toggle to volume slider disabled state
+        document.getElementById('setting-sound')?.addEventListener('change', (e) => {
+            if (volumeContainerEl) {
+                volumeContainerEl.classList.toggle('disabled', !e.target.checked);
+            }
+        });
+
         document.getElementById('setting-cloud-provider')?.addEventListener('change', (e) => {
             handleCloudProviderChange(e.target.value);
+        });
+
+        DOM.cloudProviderToggle?.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleCloudProviderList();
+        });
+
+        DOM.cloudProviderToggle?.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openCloudProviderList();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                openCloudProviderList();
+                const last = DOM.cloudProviderList?.lastElementChild;
+                last?.focus();
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!DOM.cloudProviderDropdown) return;
+            if (DOM.cloudProviderDropdown.contains(e.target)) return;
+            closeCloudProviderList();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeCloudProviderList();
+            }
         });
 
         DOM.btnCloudPath?.addEventListener('click', handleChooseCloudPath);
@@ -1638,6 +1798,8 @@
             renderGroups();
             updateFilterCounts();
             updateStatusBar();
+            renderHelpCenter();
+            renderBountyPanel();
             loadSettings();
             window.appState.getTargets().forEach(syncReminderWatcher);
             refreshMenubarMenuState();
@@ -1665,6 +1827,8 @@
                     }
                 };
             }
+
+            updateBountyAlertUI();
         });
 
         state.on('targets-changed', () => {
@@ -1672,6 +1836,10 @@
             updateFilterCounts();
             updateStatusBar();
             renderGroups();
+            renderHelpCenter();
+            if (state.currentView === 'bounties') {
+                renderBountyWatchlist();
+            }
             refreshMenubarMenuState();
             if (onboardingWaitCondition?.type === 'targets') {
                 const baseline = onboardingWaitCondition.baseline || 0;
@@ -1699,6 +1867,9 @@
             updateStatusBar();
             if (state.currentView === 'statistics') {
                 renderStatistics();
+            }
+            if (state.currentView === 'bounties') {
+                renderBountyWatchlist();
             }
             // Update tray with current counts
             window.electronAPI?.setTrayStatus?.({
@@ -1809,14 +1980,11 @@
                 }, 1000);
 
                 // Store interval for cleanup
-                if (!window._pauseCountdowns) window._pauseCountdowns = [];
-                window._pauseCountdowns.push(countdownInterval);
+                pauseCountdownIntervals.push(countdownInterval);
             } else {
                 // Clear any pause countdown intervals
-                if (window._pauseCountdowns) {
-                    window._pauseCountdowns.forEach(interval => clearInterval(interval));
-                    window._pauseCountdowns = [];
-                }
+                pauseCountdownIntervals.forEach(interval => clearInterval(interval));
+                pauseCountdownIntervals = [];
 
                 // Normal refresh progress
                 DOM.refreshAllBtn?.classList.add('spinning');
@@ -1845,10 +2013,8 @@
 
         state.on('refresh-completed', () => {
             // Clear any pause countdown intervals
-            if (window._pauseCountdowns) {
-                window._pauseCountdowns.forEach(interval => clearInterval(interval));
-                window._pauseCountdowns = [];
-            }
+            pauseCountdownIntervals.forEach(interval => clearInterval(interval));
+            pauseCountdownIntervals = [];
 
             DOM.statusRefresh.style.display = 'none';
             DOM.refreshAllBtn?.classList.remove('spinning');
@@ -1872,10 +2038,8 @@
 
         state.on('refresh-cancelled', () => {
             // Clear any pause countdown intervals
-            if (window._pauseCountdowns) {
-                window._pauseCountdowns.forEach(interval => clearInterval(interval));
-                window._pauseCountdowns = [];
-            }
+            pauseCountdownIntervals.forEach(interval => clearInterval(interval));
+            pauseCountdownIntervals = [];
 
             DOM.statusRefresh.style.display = 'none';
             DOM.refreshAllBtn?.classList.remove('spinning');
@@ -1903,6 +2067,7 @@
             }
             refreshMenubarMenuState();
             updateStatusBar();
+            renderHelpCenter();
         });
 
         state.on('loading', (isLoading) => {
@@ -1924,6 +2089,7 @@
                 lastRefresh: window.appState.lastRefresh,
                 rateLimitStatus: window.appState.limiter?.getStatus?.()
             });
+            renderHelpCenter();
         });
 
         state.on('selection-changed', () => refreshMenubarMenuState());
@@ -1933,6 +2099,9 @@
                 if (window.appState.currentView === onboardingWaitCondition.targetView) {
                     handleOnboardingResume('view');
                 }
+            }
+            if (state.currentView === 'bounties') {
+                renderBountyPanel();
             }
         });
 
@@ -1952,6 +2121,22 @@
             });
         });
 
+        state.on('bounties-changed', () => {
+            updateBountyAlertUI();
+            if (state.currentView === 'bounties') {
+                renderBountyPanel(true);
+            }
+            renderTargetList();
+            const selected = state.getSelectedTarget ? state.getSelectedTarget() : null;
+            if (selected) {
+                renderTargetDetail(selected);
+            }
+        });
+
+        state.on('bounty-alert', () => {
+            updateBountyAlertUI();
+        });
+
         state.on('play-notification-sound', () => {
             playSound('notification');
         });
@@ -1962,6 +2147,12 @@
     // ========================================================================
 
     function switchView(view) {
+        // Cleanup from previous view
+        const previousView = window.appState.currentView;
+        if (previousView === 'loot-timer' && view !== 'loot-timer') {
+            cleanupLootTimer();
+        }
+
         // Update activity bar
         DOM.activityItems.forEach(item => {
             item.classList.toggle('active', item.dataset.view === view);
@@ -1981,6 +2172,12 @@
             renderStatistics();
         } else if (view === 'loot-timer') {
             renderLootTimer();
+        } else if (view === 'bounties') {
+            renderBountyPanel();
+        } else if (view === 'help') {
+            renderHelpCenter();
+        } else if (view === 'backup') {
+            initializeBackupView();
         }
     }
 
@@ -2140,7 +2337,15 @@
         }
     }
 
-    function renderTargetList() {
+    function renderHelpCenter() {
+        // Help view is static; no dynamic stats required.
+    }
+
+    // Track which items are currently rendered to enable smart updates
+    let renderedTargetIds = [];
+    let isFullRenderNeeded = true;
+
+    function renderTargetList(forceFullRender = false) {
         const targets = window.appState.getFilteredTargets();
         const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
         DOM.targetsCount.textContent = `(${targets.length})`;
@@ -2157,34 +2362,91 @@
                 </div>
             `;
             updateSelectionToolbar([]);
+            renderedTargetIds = [];
+            isFullRenderNeeded = true;
             return;
         }
 
-        DOM.targetList.innerHTML = targets.map(target => {
-            const timeRemaining = target.getFormattedTimeRemaining();
-            updateCountdownTracking(target, timeRemaining);
-            return createTargetListItem(target, timeRemaining);
-        }).join('');
+        const newTargetIds = targets.map(t => t.userId);
+        const needsFullRender = forceFullRender || isFullRenderNeeded ||
+            renderedTargetIds.length !== newTargetIds.length ||
+            !renderedTargetIds.every((id, i) => id === newTargetIds[i]);
 
-        // Bind events to new items
-        DOM.targetList.querySelectorAll('.target-item').forEach(item => {
-            const userId = parseInt(item.dataset.userId, 10);
+        if (needsFullRender) {
+            // Full render - replace everything
+            DOM.targetList.innerHTML = targets.map(target => {
+                const timeRemaining = target.getFormattedTimeRemaining();
+                updateCountdownTracking(target, timeRemaining);
+                return createTargetListItem(target, timeRemaining);
+            }).join('');
 
-            item.addEventListener('click', (e) => {
-                if (window.appState.currentView !== 'targets') {
-                    switchView('targets');
-                }
-                handleTargetItemClick(e, userId);
+            // Bind events to new items
+            DOM.targetList.querySelectorAll('.target-item').forEach(item => {
+                const userId = parseInt(item.dataset.userId, 10);
+
+                item.addEventListener('click', (e) => {
+                    if (window.appState.currentView !== 'targets') {
+                        switchView('targets');
+                    }
+                    handleTargetItemClick(e, userId);
+                });
+
+                item.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    showContextMenu(e, userId);
+                });
             });
 
-            item.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                showContextMenu(e, userId);
+            renderedTargetIds = newTargetIds;
+            isFullRenderNeeded = false;
+        } else {
+            // Smart update - only update individual items that changed
+            targets.forEach((target, index) => {
+                const timeRemaining = target.getFormattedTimeRemaining();
+                updateCountdownTracking(target, timeRemaining);
+                updateTargetListItemInPlace(target, timeRemaining);
             });
-        });
+        }
 
         // Update selection
         updateTargetListSelection(selectedIds);
+    }
+
+    // Update a single target item in place without replacing the element
+    function updateTargetListItemInPlace(target, timeRemaining = null) {
+        const item = DOM.targetList.querySelector(`.target-item[data-user-id="${target.userId}"]`);
+        if (!item) return;
+
+        // Update status dot
+        const statusDot = item.querySelector('.status-dot');
+        if (statusDot) {
+            statusDot.className = `status-dot ${target.getStatusClass()}`;
+        }
+
+        // Update timer
+        const timerValue = timeRemaining ?? target.getFormattedTimeRemaining();
+        const metaEl = item.querySelector('.target-meta');
+        if (metaEl) {
+            const level = target.level ? `Lv.${target.level}` : '';
+            const timer = timerValue ? `&#9201; ${timerValue}` : '';
+            const difficulty = window.appState.getTargetDifficulty ? window.appState.getTargetDifficulty(target) : null;
+            const difficultyBadge = difficulty
+                ? `<span class="difficulty-pill ${difficulty.className || ''}" title="${escapeHtml(difficulty.advice || '')}">${escapeHtml(difficulty.label || 'Difficulty')}</span>`
+                : '';
+            const hasBounty = window.appState.hasActiveBounty ? window.appState.hasActiveBounty(target.userId) : false;
+            const bountyBadge = hasBounty ? '<span class="target-bounty-pill" title="Tracked bounty on this target">Bounty</span>' : '';
+            metaEl.innerHTML = `${level} ${timer} ${difficultyBadge} ${bountyBadge}`;
+        }
+
+        // Update flagged class
+        const group = window.appState.getGroup(target.groupId);
+        const hasNoAttackFlag = group && group.noAttack;
+        item.classList.toggle('in-flagged-group', hasNoAttackFlag);
+    }
+
+    // Force full render on next call (e.g., after adding/removing targets)
+    function invalidateTargetListRender() {
+        isFullRenderNeeded = true;
     }
 
     function handleTargetItemClick(event, userId) {
@@ -2211,6 +2473,9 @@
         const timerValue = timeRemaining ?? target.getFormattedTimeRemaining();
         const group = window.appState.getGroup(target.groupId);
         const hasNoAttackFlag = group && group.noAttack;
+        const groupName = group ? group.name.toLowerCase() : '';
+        const isMugGroup = groupName === 'mug';
+        const isChainGroup = groupName === 'chain';
         const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
         const selectedClass = selectedIds.includes(target.userId) ? 'selected' : '';
         const flaggedClass = hasNoAttackFlag ? 'in-flagged-group' : '';
@@ -2221,6 +2486,42 @@
         const difficultyBadge = difficulty
             ? `<span class="difficulty-pill ${difficulty.className || ''}" title="${escapeHtml(difficulty.advice || '')}">${escapeHtml(difficulty.label || 'Difficulty')}</span>`
             : '';
+        const hasBounty = window.appState.hasActiveBounty
+            ? window.appState.hasActiveBounty(target.userId)
+            : false;
+        const bountyBadge = hasBounty
+            ? '<span class="target-bounty-pill" title="Tracked bounty on this target">Bounty</span>'
+            : '';
+
+        // Status detection with null-safe method calls
+        const isAttackable = target.isAttackable && target.isAttackable();
+        const isInHospital = target.isInHospital && target.isInHospital();
+        const isInJail = target.isInJail && target.isInJail();
+        const isInFederal = target.isInFederal && target.isInFederal();
+        const isTraveling = target.isTraveling && target.isTraveling();
+        const isFallen = target.isFallen && target.isFallen();
+
+        // Build status icon HTML with enhanced tooltips including status description
+        const statusDesc = target.statusDesc ? ` (${escapeHtml(target.statusDesc)})` : '';
+        let statusIconHtml = '';
+
+        if (isInFederal) {
+            const timeInfo = timerValue ? ` - ${timerValue} remaining` : '';
+            statusIconHtml = `<img src="assets/federal.png" class="target-status-icon" title="Federal Jail${statusDesc}${timeInfo}" alt="Federal" />`;
+        } else if (isInJail) {
+            const timeInfo = timerValue ? ` - ${timerValue} remaining` : '';
+            statusIconHtml = `<img src="assets/jail.png" class="target-status-icon" title="Jail${statusDesc}${timeInfo}" alt="Jail" />`;
+        } else if (isInHospital) {
+            const timeInfo = timerValue ? ` - ${timerValue} remaining` : '';
+            statusIconHtml = `<img src="assets/hospital.png" class="target-status-icon" title="Hospital${statusDesc}${timeInfo}" alt="Hospital" />`;
+        } else if (isTraveling) {
+            const destination = target.statusDesc || 'Abroad';
+            statusIconHtml = `<img src="assets/travel.png" class="target-status-icon" title="Traveling to ${escapeHtml(destination)}" alt="Traveling" />`;
+        } else if (isFallen) {
+            statusIconHtml = `<span class="target-status-icon target-fallen-icon" title="Fallen - Account inactive">💀</span>`;
+        } else if (isAttackable) {
+            statusIconHtml = `<img src="assets/attack.png" class="target-status-icon target-okay-icon" title="Ready to attack!" alt="OK" />`;
+        }
 
         // Avatar HTML
         const avatarHtml = showAvatars ? `
@@ -2228,6 +2529,27 @@
                 ${target.avatarPath || target.avatarUrl ? `<img src="${target.avatarPath || target.avatarUrl}" alt="${escapeHtml(displayName)}">` : ''}
             </div>
         ` : '';
+
+        // Build icons in a container with proper ordering:
+        // 1. Status icon (hospital/jail/federal/travel/fallen/okay) - current state
+        // 2. Group icons (mug/chain) - target classification
+        // 3. Monitor alert icon - active monitoring indicator
+        // 4. Prevent icon - warning/protection flag
+        // 5. Favorite star - user preference
+        // 6. Error indicator - issues
+        const icons = [];
+
+        if (statusIconHtml) icons.push(statusIconHtml);
+        if (isMugGroup) icons.push('<img src="assets/mug.png" class="target-group-icon" title="Mug target" alt="Mug" />');
+        if (isChainGroup) icons.push('<img src="assets/chain.png" class="target-group-icon" title="Chain target" alt="Chain" />');
+        if (target.monitorOk) icons.push('<img src="assets/alert.png" class="target-alert-icon" title="Status monitor enabled - will notify when OK" alt="Alert" />');
+        if (hasNoAttackFlag) icons.push('<img src="assets/prevent.png" class="target-prevent-icon" title="⚠ Do Not Attack - Protected by ' + escapeHtml(group.name) + '" alt="Prevent" />');
+        if (target.isFavorite) icons.push('<img src="assets/star.png" class="target-favorite-icon" title="Favorite target" alt="Favorite" />');
+        if (target.error) icons.push('<span class="target-error" title="Error: ' + escapeHtml(target.error) + '">!</span>');
+
+        const iconsHtml = icons.length > 0
+            ? `<div class="target-icons">${icons.join('')}</div>`
+            : '';
 
         return `
             <div class="target-item ${selectedClass} ${flaggedClass}"
@@ -2240,12 +2562,10 @@
                         ${target.level ? `Lv.${target.level}` : ''}
                         ${timerValue ? `&#9201; ${timerValue}` : ''}
                         ${difficultyBadge}
+                        ${bountyBadge}
                     </span>
                 </div>
-                ${target.monitorOk ? '<img src="assets/alert.png" class="target-alert-icon" title="Status monitor enabled" alt="Alert" />' : ''}
-                ${hasNoAttackFlag ? '<img src="assets/prevent.png" class="target-prevent-icon" title="⚠ Do Not Attack - Protected by ' + escapeHtml(group.name) + '" alt="Prevent" />' : ''}
-                ${target.isFavorite ? '<span class="target-favorite-badge" title="Favorite">&#9733;</span>' : ''}
-                ${target.error ? '<span class="target-error">!</span>' : ''}
+                ${iconsHtml}
             </div>
         `;
     }
@@ -2415,6 +2735,7 @@
         // Timer - update countdown or hide if expired
         updateDetailTimer(target);
         renderDifficulty(target);
+        renderTargetBountyChip(target);
 
         // Favorite button
         if (DOM.detailFavoriteBtn) {
@@ -2548,7 +2869,7 @@
         }).join('');
     }
 
-    function renderTargetIntel(target, { loading = false, error = null } = {}) {
+    function renderTargetIntel(target, { loading = false, error = null, refreshing = false } = {}) {
         if (!DOM.detailIntelSection) return;
 
         const statusEl = DOM.detailIntelStatus;
@@ -2556,6 +2877,7 @@
         const updatedEl = DOM.detailIntelUpdated;
         const sourceEl = DOM.detailIntelSource;
         const freshnessEl = DOM.detailIntelFreshness;
+        const hasCachedIntel = !!target?.intel;
 
         const setStat = (el, value) => {
             if (el) el.textContent = formatIntelValue(value);
@@ -2587,7 +2909,7 @@
             }
         };
 
-        if (loading) {
+        if (loading && !hasCachedIntel) {
             setStateClass('intel-loading');
             clearStats();
             setStatus('Fetching intelligence...');
@@ -2596,7 +2918,7 @@
             return;
         }
 
-        if (error) {
+        if (error && !hasCachedIntel) {
             setStateClass('intel-error');
             clearStats();
             setStatus('Intel error');
@@ -2612,18 +2934,23 @@
             return;
         }
 
+        const intel = target.intel;
+        const hasIntel = !!intel;
+
         if (!window.tornStatsAPI || !window.tornStatsAPI.apiKey) {
-            setStateClass('intel-missing');
-            clearStats();
-            setStatus('TornStats key required');
-            setMessage('Add your TornStats API key in Settings to enable battle stat estimation.', true);
-            if (updatedEl) updatedEl.textContent = '-';
-            if (sourceEl) sourceEl.textContent = '';
-            if (freshnessEl) freshnessEl.textContent = '';
-            return;
+            if (!hasIntel) {
+                setStateClass('intel-missing');
+                clearStats();
+                setStatus('TornStats key required');
+                setMessage('Add your TornStats API key in Settings to enable battle stat estimation.', true);
+                if (updatedEl) updatedEl.textContent = '-';
+                if (sourceEl) sourceEl.textContent = '';
+                if (freshnessEl) freshnessEl.textContent = '';
+                return;
+            }
+            // If we have cached intel, continue to render it even without an API key
         }
 
-        const intel = target.intel;
         if (!intel) {
             setStateClass('intel-missing');
             clearStats();
@@ -2646,6 +2973,7 @@
             return;
         }
 
+        const isRefreshing = refreshing && hasIntel;
         setStateClass('intel-ready');
         setStat(DOM.detailIntelStr, intel.stats?.strength);
         setStat(DOM.detailIntelDef, intel.stats?.defense);
@@ -2657,12 +2985,16 @@
             ? `Source: TornStats - ${intel.type}`
             : 'Source: TornStats';
         if (sourceEl) sourceEl.textContent = sourceText;
-        setStatus('Intel ready');
-        setMessage(intel.message || 'Latest battle stats from TornStats');
+        setStatus(isRefreshing ? 'Refreshing intel...' : 'Intel ready');
+        const message = intel.message || 'Latest battle stats from TornStats';
+        setMessage(isRefreshing ? `${message} (refreshing...)` : message);
 
         const lastSeen = intel.lastSeen || intel.fetchedAt || null;
         if (updatedEl) updatedEl.textContent = lastSeen ? formatTimestamp(lastSeen) : '-';
-        if (freshnessEl) freshnessEl.textContent = intel.fetchedAt ? `Cached ${formatIntelAge(intel.fetchedAt)}` : '';
+        if (freshnessEl) {
+            const ageText = intel.fetchedAt ? `Cached ${formatIntelAge(intel.fetchedAt)}` : '';
+            freshnessEl.textContent = isRefreshing && ageText ? `${ageText} (refreshing...)` : ageText;
+        }
     }
 
     function renderDifficulty(target) {
@@ -2677,6 +3009,34 @@
             : (difficulty?.advice || 'Difficulty unavailable');
     }
 
+    function renderTargetBountyChip(target) {
+        const chipRow = document.querySelector('.target-chip-row');
+        if (!chipRow) return;
+
+        const bountyEntry = window.appState.getActiveBountyForTarget
+            ? window.appState.getActiveBountyForTarget(target.userId)
+            : null;
+
+        let chip = document.getElementById('detail-bounty-chip');
+
+        if (!bountyEntry) {
+            if (chip) {
+                chip.remove();
+            }
+            return;
+        }
+
+        if (!chip) {
+            chip = document.createElement('span');
+            chip.id = 'detail-bounty-chip';
+            chip.className = 'chip chip-bounty';
+            chipRow.appendChild(chip);
+        }
+
+        chip.textContent = bountyEntry.reward !== null ? formatCurrency(bountyEntry.reward) : 'Bounty';
+        chip.title = bountyEntry.expiresAt ? formatExpiry(bountyEntry.expiresAt) : 'Tracked bounty';
+    }
+
     function maybeRefreshIntel(target, { force = false } = {}) {
         if (!target || !window.appState?.fetchTargetIntel) return;
         if (!window.tornStatsAPI || !window.tornStatsAPI.apiKey) {
@@ -2685,9 +3045,16 @@
         }
         const intel = target.intel;
         const isFresh = intel?.fetchedAt && Date.now() - intel.fetchedAt < INTEL_STALE_MS;
-        if (isFresh && !force) return;
+        if (isFresh && !force) {
+            renderTargetIntel(target);
+            return;
+        }
 
-        renderTargetIntel(target, { loading: true });
+        if (intel) {
+            renderTargetIntel(target, { refreshing: true });
+        } else {
+            renderTargetIntel(target, { loading: true });
+        }
         window.appState.fetchTargetIntel(target.userId, { force })
             .then(() => {
                 const updated = window.appState.getTarget(target.userId);
@@ -2695,7 +3062,12 @@
                 renderDifficulty(updated);
             })
             .catch(err => {
-                renderTargetIntel(target, { error: err.message });
+                const fallback = window.appState.getTarget(target.userId) || target;
+                if (fallback?.intel) {
+                    renderTargetIntel(fallback, { refreshing: true });
+                } else {
+                    renderTargetIntel(target, { error: err.message });
+                }
             });
     }
 
@@ -2885,6 +3257,14 @@
 
             updateSmartStatusCountdowns();
 
+            if (window.appState.currentView === 'bounties') {
+                const nowTick = Date.now();
+                if (!bountyRenderTick || nowTick - bountyRenderTick > 60000) {
+                    renderBountyWatchlist();
+                    bountyRenderTick = nowTick;
+                }
+            }
+
             if (activeCountdownTargets.size === 0) return;
 
             for (const userId of Array.from(activeCountdownTargets)) {
@@ -3070,6 +3450,7 @@
         updateNextRefreshStatus(stats);
         updateConnectionStatus(window.appState.isOnline);
         updateSmartStatusCountdowns(true);
+        renderHelpCenter();
     }
 
     function setStatusTone(element, tone) {
@@ -3173,7 +3554,10 @@
             { id: 'view-history', label: 'View History', detail: 'Recent attacks', shortcut: 'Ctrl+2', action: () => switchView('history') },
             { id: 'view-statistics', label: 'View Statistics', detail: 'Aggregated metrics', shortcut: 'Ctrl+3', action: () => switchView('statistics') },
             { id: 'view-loot', label: 'View Loot Timer', detail: 'Loot availability', shortcut: 'Ctrl+4', action: () => switchView('loot-timer') },
+            { id: 'view-bounties', label: 'View Bounties', detail: 'Bounty stats & watchlist', shortcut: 'Ctrl+5', action: () => switchView('bounties') },
+            { id: 'view-help', label: 'Open Help Center', detail: 'Guides and troubleshooting', shortcut: 'Ctrl+6', action: () => switchView('help') },
             { id: 'open-connection', label: 'Check Connections', detail: 'Open connection health dialog', action: () => openConnectionDialog() },
+            { id: 'open-backup', label: 'Backup & Restore', detail: 'Export or import your data', action: () => switchView('backup') },
             { id: 'open-about', label: 'About', detail: 'Version, data path', action: () => showAboutModal() },
             { id: 'open-data-folder', label: 'Open Data Folder', detail: 'Jump to storage location', action: () => window.electronAPI?.openAppPath?.('data') },
             { id: 'toggle-compact', label: settings.compactMode ? 'Disable Compact Mode' : 'Enable Compact Mode', detail: 'Adjust density', action: () => window.appState.updateSettings({ compactMode: !settings.compactMode }) },
@@ -3730,6 +4114,313 @@
     }
 
     // ========================================================================
+    // BOUNTIES
+    // ========================================================================
+
+    function renderBountyPanel(force = false) {
+        renderBountyStats();
+        renderBountyWatchlist(force);
+        updateBountyAlertUI();
+    }
+
+    function renderBountyStats() {
+        if (!DOM.bountyStats) return;
+        const stats = window.appState.getBountyStats ? window.appState.getBountyStats() : {};
+        const setValue = (el, value, formatter = formatNumber) => {
+            if (!el) return;
+            el.textContent = value === null || value === undefined ? '--' : formatter(value);
+        };
+
+        setValue(DOM.bountyStats.collected, stats.collected);
+        setValue(DOM.bountyStats.placed, stats.placed);
+        setValue(DOM.bountyStats.received, stats.received);
+        setValue(DOM.bountyStats.reward, stats.reward, formatCurrency);
+        setValue(DOM.bountyStats.spent, stats.spent, formatCurrency);
+        setValue(DOM.bountyStats.valueOnYou, stats.valueOnYou, formatCurrency);
+
+        if (DOM.bountyStatsUpdated) {
+            DOM.bountyStatsUpdated.textContent = stats.lastUpdated
+                ? `Last updated: ${formatDateTime(stats.lastUpdated)}`
+                : 'Last updated: Never';
+        }
+    }
+
+    function renderBountyWatchlist() {
+        const listEl = DOM.bountyList;
+        if (!listEl) return;
+
+        const watchlist = window.appState.getBountyWatchlist
+            ? window.appState.getBountyWatchlist({ includeExpired: true, includeClaimed: true })
+            : [];
+
+        if (DOM.bountyEmptyState) {
+            DOM.bountyEmptyState.style.display = watchlist.length === 0 ? 'flex' : 'none';
+        }
+
+        if (watchlist.length === 0) {
+            listEl.innerHTML = '';
+            return;
+        }
+
+        listEl.innerHTML = watchlist.map(renderBountyItem).join('');
+        bountyRenderTick = Date.now();
+    }
+
+    function renderBountyItem(entry) {
+        const target = entry.targetId ? window.appState.getTarget(entry.targetId) : null;
+        const statusClass = target ? target.getStatusClass() : 'status-unknown';
+        const statusLabel = target ? (target.statusState || 'Unknown') : (entry.isExpired ? 'Expired' : 'Untracked');
+        const isOkay = target && target.statusState === 'Okay';
+        const difficulty = target && window.appState.getTargetDifficulty
+            ? window.appState.getTargetDifficulty(target)
+            : null;
+        const rewardLabel = entry.reward !== null ? formatCurrency(entry.reward) : '???';
+        const expiryLabel = entry.expiresAt ? formatExpiry(entry.expiresAt) : 'No expiry';
+        const addedLabel = formatTimestamp(entry.addedAt);
+        const claimedLabel = entry.claimedAt ? formatTimestamp(entry.claimedAt) : '';
+        const classes = ['bounty-item'];
+        if (entry.isExpired) classes.push('expired');
+        if (entry.claimedAt) classes.push('claimed');
+        if (isOkay && !entry.claimedAt && !entry.isExpired) classes.push('attackable');
+
+        const targetIdLabel = entry.targetId ? `<span class="bounty-target-id">#${entry.targetId}</span>` : '';
+        const difficultyChip = difficulty ? `<span class="bounty-chip difficulty ${difficulty.className || ''}">${escapeHtml(difficulty.label || '')}</span>` : '';
+        const targetChip = target
+            ? `<span class="bounty-chip status ${statusClass}">${escapeHtml(statusLabel)}</span>`
+            : `<span class="bounty-chip muted">${escapeHtml(statusLabel)}</span>`;
+
+        // Show attack button prominently if target is Okay
+        const attackBtn = entry.targetId && !entry.claimedAt && !entry.isExpired
+            ? `<button class="bounty-action-btn ${isOkay ? 'attack' : ''}" data-bounty-action="attack" data-target-id="${entry.targetId}" ${!isOkay ? 'disabled title="Target not available"' : ''}>
+                <svg viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"><path fill="currentColor" d="M19.78 2.2l2.02 2.02-2.2 7.36-4.78-1.58-6.58 6.58 1.58 4.78-7.36 2.2-2.02-2.02 2.2-7.36 4.78 1.58L14 9.18l-1.58-4.78 7.36-2.2z"/></svg>
+                Attack
+            </button>`
+            : '';
+
+        return `
+            <div class="${classes.join(' ')}" data-bounty-id="${entry.id}">
+                <div class="bounty-item-header">
+                    <div class="bounty-title">
+                        <span class="bounty-target-name">${escapeHtml(entry.targetName || 'Unknown target')}</span>
+                        ${targetIdLabel}
+                        ${targetChip}
+                        ${difficultyChip}
+                    </div>
+                    <div class="bounty-reward">${escapeHtml(rewardLabel)}</div>
+                </div>
+                <div class="bounty-item-body">
+                    <div class="bounty-meta">
+                        <span class="bounty-meta-item">
+                            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg>
+                            ${escapeHtml(expiryLabel)}
+                        </span>
+                        <span class="bounty-meta-item">
+                            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
+                            Added ${escapeHtml(addedLabel)}
+                        </span>
+                        ${claimedLabel ? `<span class="bounty-meta-item bounty-claimed-badge">
+                            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                            Claimed ${escapeHtml(claimedLabel)}
+                        </span>` : ''}
+                    </div>
+                    <div class="bounty-actions">
+                        ${attackBtn}
+                        ${entry.targetId ? `<button class="bounty-action-btn" data-bounty-action="view" data-target-id="${entry.targetId}">
+                            <svg viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                            Profile
+                        </button>` : ''}
+                        ${!entry.targetId ? `<button class="bounty-action-btn" data-bounty-action="track">
+                            <svg viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                            Add to Targets
+                        </button>` : ''}
+                        <button class="bounty-action-btn ${entry.claimedAt ? '' : 'success'}" data-bounty-action="${entry.claimedAt ? 'unclaim' : 'claim'}">
+                            <svg viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"><path fill="currentColor" d="${entry.claimedAt ? 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z' : 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z'}"/></svg>
+                            ${entry.claimedAt ? 'Unclaim' : 'Claimed'}
+                        </button>
+                        <button class="bounty-action-btn danger" data-bounty-action="remove" title="Remove from watchlist">
+                            <svg viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:middle;"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    async function handleAddBounty() {
+        if (!window.appState?.addBountyEntry) return;
+        const targetInput = (DOM.bountyTargetInput?.value || '').trim();
+        const rewardInput = DOM.bountyRewardInput?.value || '';
+
+        if (!targetInput) {
+            showToast('Enter a target ID or name to track a bounty', 'info');
+            DOM.bountyTargetInput?.focus();
+            return;
+        }
+
+        // Show loading state
+        const addBtn = document.getElementById('btn-add-bounty');
+        const originalText = addBtn?.innerHTML;
+        if (addBtn) {
+            addBtn.disabled = true;
+            addBtn.innerHTML = `<svg class="spin" viewBox="0 0 24 24" style="width:16px;height:16px;"><path fill="currentColor" d="M12 4V2A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8z"/></svg> Adding...`;
+        }
+
+        try {
+            const result = await window.appState.addBountyEntry(targetInput, rewardInput);
+            if (DOM.bountyTargetInput) DOM.bountyTargetInput.value = '';
+            if (DOM.bountyRewardInput) DOM.bountyRewardInput.value = '';
+            renderBountyWatchlist();
+            const msg = result.updated
+                ? `Updated bounty for ${result.entry.targetName}`
+                : `Added ${result.entry.targetName} to watchlist`;
+            showToast(msg, 'success');
+        } catch (error) {
+            console.error('Failed to add bounty', error);
+            showToast(error.message || 'Could not add bounty', 'error');
+        } finally {
+            // Restore button state
+            if (addBtn) {
+                addBtn.disabled = false;
+                addBtn.innerHTML = originalText;
+            }
+        }
+    }
+
+    async function handleRefreshBountyStats() {
+        if (!window.appState?.refreshBountyStats) return;
+        if (!window.appState.settings?.apiKey) {
+            showToast('Add your API key in Settings to load bounty statistics', 'info');
+            return;
+        }
+
+        DOM.btnRefreshBountyStats?.classList.add('spinning');
+        try {
+            await window.appState.refreshBountyStats();
+            renderBountyStats();
+            showToast('Bounty statistics refreshed', 'success');
+        } catch (error) {
+            console.error('Failed to refresh bounty stats', error);
+            showToast(error.message || 'Unable to refresh bounty stats', 'error');
+        } finally {
+            DOM.btnRefreshBountyStats?.classList.remove('spinning');
+        }
+    }
+
+    async function handleBountyListClick(e) {
+        const actionBtn = e.target.closest('[data-bounty-action]');
+        if (!actionBtn) return;
+        if (actionBtn.disabled) return;
+
+        const item = actionBtn.closest('.bounty-item');
+        const entryId = item?.dataset.bountyId;
+        if (!entryId) return;
+
+        const action = actionBtn.dataset.bountyAction;
+        const targetId = actionBtn.dataset.targetId ? parseInt(actionBtn.dataset.targetId, 10) : null;
+
+        try {
+            switch (action) {
+                case 'attack': {
+                    if (targetId && !Number.isNaN(targetId)) {
+                        const url = `https://www.torn.com/loader.php?sid=attack&user2ID=${targetId}`;
+                        if (window.electronAPI?.openExternal) {
+                            window.electronAPI.openExternal(url);
+                        } else {
+                            window.open(url, '_blank');
+                        }
+                    }
+                    break;
+                }
+                case 'view': {
+                    if (targetId && !Number.isNaN(targetId)) {
+                        const url = `https://www.torn.com/profiles.php?XID=${targetId}`;
+                        if (window.electronAPI?.openExternal) {
+                            window.electronAPI.openExternal(url);
+                        } else {
+                            window.open(url, '_blank');
+                        }
+                    }
+                    break;
+                }
+                case 'track': {
+                    // Get bounty entry to find target info
+                    const watchlist = window.appState.getBountyWatchlist ? window.appState.getBountyWatchlist() : [];
+                    const entry = watchlist.find(b => b.id === entryId);
+                    if (entry && entry.targetName) {
+                        // Add to target list
+                        await window.appState.addTargetByName(entry.targetName);
+                        showToast(`Added ${entry.targetName} to target list`, 'success');
+                        renderBountyWatchlist();
+                        invalidateTargetListRender();
+                        renderTargetList(true);
+                    }
+                    break;
+                }
+                case 'claim':
+                    await window.appState.markBountyClaimed(entryId, true);
+                    showToast('Bounty marked as claimed!', 'success');
+                    break;
+                case 'unclaim':
+                    await window.appState.markBountyClaimed(entryId, false);
+                    showToast('Bounty marked as active', 'info');
+                    break;
+                case 'remove': {
+                    // Get entry name for confirmation
+                    const watchlist = window.appState.getBountyWatchlist ? window.appState.getBountyWatchlist() : [];
+                    const entry = watchlist.find(b => b.id === entryId);
+                    const targetName = entry?.targetName || 'this bounty';
+
+                    // Simple confirmation via item flash effect
+                    if (item.classList.contains('confirm-remove')) {
+                        await window.appState.removeBountyEntry(entryId);
+                        showToast(`Removed ${targetName} from watchlist`, 'info');
+                    } else {
+                        item.classList.add('confirm-remove');
+                        showToast('Click again to confirm removal', 'warning');
+                        setTimeout(() => item?.classList.remove('confirm-remove'), 3000);
+                        return; // Don't re-render yet
+                    }
+                    break;
+                }
+            }
+            renderBountyWatchlist();
+        } catch (error) {
+            console.error('Failed to update bounty entry', error);
+            showToast(error.message || 'Could not update bounty entry', 'error');
+        }
+    }
+
+    async function handleDismissBountyAlert() {
+        try {
+            await window.appState.dismissBountyAlert();
+        } catch (error) {
+            console.error('Failed to dismiss bounty alert', error);
+        } finally {
+            updateBountyAlertUI();
+        }
+    }
+
+    function updateBountyAlertUI() {
+        const alert = window.appState.getBountyAlert ? window.appState.getBountyAlert() : { active: false, delta: 0 };
+        const active = !!alert?.active;
+
+        if (DOM.bountyAlertBadge) {
+            DOM.bountyAlertBadge.style.display = active ? 'inline-flex' : 'none';
+        }
+
+        if (DOM.bountyAlertBanner) {
+            DOM.bountyAlertBanner.style.display = active ? 'flex' : 'none';
+            const textEl = DOM.bountyAlertBanner.querySelector('.bounty-alert-text');
+            if (textEl) {
+                const delta = alert?.delta || 0;
+                textEl.textContent = delta > 1
+                    ? `${delta} new bounties may be on you`
+                    : 'A bounty may have been placed on you!';
+            }
+        }
+    }
+
+    // ========================================================================
     // STATISTICS
     // ========================================================================
 
@@ -4108,15 +4799,19 @@
     let lootApiData = null;
     let lootLastFetch = null;
 
+    function cleanupLootTimer() {
+        if (lootTimerInterval) {
+            clearInterval(lootTimerInterval);
+            lootTimerInterval = null;
+        }
+    }
+
     async function renderLootTimer() {
         const container = document.getElementById('loot-bosses-grid');
         if (!container) return;
 
         // Clear any existing interval
-        if (lootTimerInterval) {
-            clearInterval(lootTimerInterval);
-            lootTimerInterval = null;
-        }
+        cleanupLootTimer();
 
         // Show loading state
         container.innerHTML = '<div class="loot-loading"><div class="spinner large"></div><span>Loading NPC loot data...</span></div>';
@@ -4821,31 +5516,38 @@
     const CLOUD_PROVIDER_META = {
         'google-drive': {
             label: 'Google Drive',
-            hint: 'Auto-detects your Drive for Desktop folder and nests backups to avoid clutter.'
+            hint: 'Auto-detects your Drive for Desktop folder and nests backups to avoid clutter.',
+            icon: 'cloud-google-drive.png'
         },
         dropbox: {
             label: 'Dropbox',
-            hint: 'Looks for your Dropbox sync folder; ideal for quick multi-device restores.'
+            hint: 'Looks for your Dropbox sync folder; ideal for quick multi-device restores.',
+            icon: 'cloud-dropbox.png'
         },
         onedrive: {
             label: 'OneDrive',
-            hint: 'Targets OneDrive/OneDrive Personal folders and keeps backups grouped together.'
+            hint: 'Targets OneDrive/OneDrive Personal folders and keeps backups grouped together.',
+            icon: 'cloud-onedrive.png'
         },
         'icloud-drive': {
             label: 'iCloud Drive',
-            hint: 'Uses iCloud Drive sync locations (Library/CloudStorage) when available.'
+            hint: 'Uses iCloud Drive sync locations (Library/CloudStorage) when available.',
+            icon: 'cloud-icloud-drive.png'
         },
         box: {
             label: 'Box',
-            hint: 'Prefers Box/Box Sync folders; choose a custom path if you renamed it.'
+            hint: 'Prefers Box/Box Sync folders; choose a custom path if you renamed it.',
+            icon: 'cloud-box.png'
         },
         mega: {
             label: 'MEGA',
-            hint: 'Searches for MEGA or MEGAsync folders and writes into a dedicated subfolder.'
+            hint: 'Searches for MEGA or MEGAsync folders and writes into a dedicated subfolder.',
+            icon: 'cloud-mega.png'
         },
         'custom-folder': {
             label: 'Custom Folder',
-            hint: 'Use any folder (local or network). Point it at a synced location if you want cloud copies.'
+            hint: 'Use any folder (local or network). Point it at a synced location if you want cloud copies.',
+            icon: 'cloud-custom-folder.png'
         }
     };
 
@@ -4858,6 +5560,177 @@
 
     function getCloudProviderLabel(provider) {
         return getCloudProviderMeta(provider).label;
+    }
+
+    function resolveAssetPath(relativePath) {
+        try {
+            return new URL(relativePath, window.location.href).toString();
+        } catch (error) {
+            console.warn('Failed to resolve asset path', relativePath, error);
+            return relativePath;
+        }
+    }
+
+    function getCloudProviderIcon(provider) {
+        const iconName = getCloudProviderMeta(provider).icon;
+        return iconName ? resolveAssetPath(`assets/${iconName}`) : null;
+    }
+
+    function updateCloudProviderLabel(provider) {
+        if (DOM.cloudProviderLabel) {
+            DOM.cloudProviderLabel.textContent = getCloudProviderLabel(provider);
+        }
+    }
+
+    function applyCloudProviderIcon(provider) {
+        if (!DOM.settingCloudProvider) return;
+        const iconPath = getCloudProviderIcon(provider);
+
+        const setIconStyles = (url) => {
+            DOM.settingCloudProvider.classList.remove('no-icon');
+            DOM.cloudProviderDropdown?.classList.remove('no-icon');
+            DOM.cloudProviderToggle?.classList.remove('no-icon');
+            if (DOM.cloudProviderIcon) {
+                DOM.cloudProviderIcon.style.backgroundImage = `url('${url}')`;
+            }
+            DOM.settingCloudProvider.style.setProperty('--cloud-provider-icon', `url('${url}')`);
+        };
+
+        const clearIconStyles = () => {
+            DOM.settingCloudProvider.classList.add('no-icon');
+            DOM.cloudProviderDropdown?.classList.add('no-icon');
+            DOM.cloudProviderToggle?.classList.add('no-icon');
+            if (DOM.cloudProviderIcon) {
+                DOM.cloudProviderIcon.style.backgroundImage = '';
+            }
+            DOM.settingCloudProvider.style.removeProperty('--cloud-provider-icon');
+        };
+
+        if (!iconPath) {
+            clearIconStyles();
+            return;
+        }
+
+        const img = new Image();
+        img.onload = () => setIconStyles(iconPath);
+        img.onerror = clearIconStyles;
+        img.src = iconPath;
+    }
+
+    function highlightCloudProviderOption(provider) {
+        if (!DOM.cloudProviderList) return;
+        Array.from(DOM.cloudProviderList.children || []).forEach((item) => {
+            const isMatch = item.dataset.value === provider;
+            item.classList.toggle('selected', isMatch);
+            item.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+        });
+    }
+
+    function closeCloudProviderList() {
+        if (DOM.cloudProviderDropdown) {
+            DOM.cloudProviderDropdown.classList.remove('open');
+            DOM.cloudProviderDropdown.classList.remove('open-up');
+        }
+        if (DOM.cloudProviderToggle) {
+            DOM.cloudProviderToggle.setAttribute('aria-expanded', 'false');
+        }
+    }
+
+    function openCloudProviderList() {
+        if (!DOM.cloudProviderDropdown || !DOM.cloudProviderList || !DOM.cloudProviderToggle) return;
+
+        DOM.cloudProviderDropdown.classList.add('open');
+        DOM.cloudProviderToggle.setAttribute('aria-expanded', 'true');
+
+        // Decide direction based on viewport space
+        const rect = DOM.cloudProviderDropdown.getBoundingClientRect();
+        const belowSpace = window.innerHeight - rect.bottom;
+        const aboveSpace = rect.top;
+        const listHeight = DOM.cloudProviderList.scrollHeight || (DOM.cloudProviderList.children.length * 36);
+        const shouldOpenUp = belowSpace < listHeight && aboveSpace > belowSpace;
+
+        DOM.cloudProviderDropdown.classList.toggle('open-up', shouldOpenUp);
+
+        const selected = DOM.cloudProviderList.querySelector('.selected') || DOM.cloudProviderList.firstElementChild;
+        selected?.focus();
+    }
+
+    function toggleCloudProviderList() {
+        if (DOM.cloudProviderDropdown?.classList.contains('open')) {
+            closeCloudProviderList();
+        } else {
+            openCloudProviderList();
+        }
+    }
+
+    function buildCloudProviderList() {
+        if (!DOM.settingCloudProvider || !DOM.cloudProviderList) return;
+        DOM.cloudProviderList.innerHTML = '';
+        Array.from(DOM.settingCloudProvider.options || []).forEach((option) => {
+            const li = document.createElement('li');
+            li.className = 'cloud-provider-item';
+            li.role = 'option';
+            li.tabIndex = -1;
+            li.dataset.value = option.value;
+
+            const iconPath = getCloudProviderIcon(option.value);
+            const iconSpan = document.createElement('span');
+            iconSpan.className = 'item-icon';
+            if (iconPath) {
+                iconSpan.style.backgroundImage = `url('${iconPath}')`;
+            } else {
+                li.classList.add('no-icon');
+            }
+
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = option.textContent;
+
+            li.appendChild(iconSpan);
+            li.appendChild(labelSpan);
+
+            li.addEventListener('click', () => {
+                selectCloudProvider(option.value, { emitChange: true, focusToggle: true });
+            });
+
+            li.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectCloudProvider(option.value, { emitChange: true, focusToggle: true });
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    li.nextElementSibling?.focus();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    (li.previousElementSibling || DOM.cloudProviderList.lastElementChild)?.focus();
+                } else if (e.key === 'Escape') {
+                    closeCloudProviderList();
+                    DOM.cloudProviderToggle?.focus();
+                }
+            });
+
+            DOM.cloudProviderList.appendChild(li);
+        });
+        highlightCloudProviderOption(DOM.settingCloudProvider.value);
+    }
+
+    function selectCloudProvider(provider, options = {}) {
+        const { emitChange = false, focusToggle = false } = options;
+        if (DOM.settingCloudProvider) {
+            DOM.settingCloudProvider.value = provider;
+        }
+        applyCloudProviderIcon(provider);
+        updateCloudProviderLabel(provider);
+        highlightCloudProviderOption(provider);
+
+        if (emitChange && DOM.settingCloudProvider) {
+            const evt = new Event('change', { bubbles: true });
+            DOM.settingCloudProvider.dispatchEvent(evt);
+        }
+
+        closeCloudProviderList();
+        if (focusToggle) {
+            DOM.cloudProviderToggle?.focus();
+        }
     }
 
     function updateCloudProviderHint(provider, statusText = '') {
@@ -4944,6 +5817,9 @@
     }
 
     async function handleCloudProviderChange(provider) {
+        applyCloudProviderIcon(provider);
+        updateCloudProviderLabel(provider);
+        highlightCloudProviderOption(provider);
         await window.appState.updateSettings({ cloudBackupProvider: provider });
         const enabled = DOM.settingCloudBackup?.checked;
         updateCloudProviderHint(provider, enabled ? '' : 'Disabled');
@@ -4996,9 +5872,21 @@
         // Notifications
         document.getElementById('setting-notifications').checked = settings.notifications;
         document.getElementById('setting-sound').checked = settings.soundEnabled;
+        const volumeSlider = document.getElementById('setting-sound-volume');
+        const volumeDisplay = document.getElementById('volume-value-display');
+        const volumeContainer = document.getElementById('setting-volume-container');
+        const soundVolume = settings.soundVolume ?? 50;
+        if (volumeSlider) volumeSlider.value = soundVolume;
+        if (volumeDisplay) volumeDisplay.textContent = `${soundVolume}%`;
+        if (volumeContainer) {
+            volumeContainer.classList.toggle('disabled', !settings.soundEnabled);
+        }
         document.getElementById('setting-notify-monitored').checked = settings.notifyOnlyMonitored || false;
         document.getElementById('setting-notify-hospital').checked = settings.notifyOnHospitalRelease || false;
         document.getElementById('setting-notify-jail').checked = settings.notifyOnJailRelease || false;
+        document.getElementById('setting-notify-added').checked = settings.notifyOnTargetAdded !== false;
+        document.getElementById('setting-notify-removed').checked = settings.notifyOnTargetRemoved || false;
+        document.getElementById('setting-notify-status').checked = settings.notifyOnStatusChange || false;
 
         // Display
         document.getElementById('setting-theme').value = settings.theme || 'dark';
@@ -5014,6 +5902,7 @@
         document.getElementById('setting-confirm-attack').checked = settings.confirmBeforeAttack;
         document.getElementById('setting-confirm-delete').checked = settings.confirmBeforeDelete !== false;
         document.getElementById('setting-attack-sound').checked = settings.playAttackSound || false;
+        document.getElementById('setting-recent-activity-days').value = settings.doNotAttackRecentActivityDays || 0;
         document.getElementById('setting-show-onboarding').checked = settings.showOnboarding !== false;
 
         // Window & Tray
@@ -5027,6 +5916,7 @@
         document.getElementById('setting-backup-preop').checked = settings.backupBeforeBulk !== false;
         document.getElementById('setting-cloud-backup').checked = settings.cloudBackupEnabled || false;
         document.getElementById('setting-cloud-provider').value = settings.cloudBackupProvider || 'google-drive';
+        selectCloudProvider(settings.cloudBackupProvider || 'google-drive');
         setCloudPathText(settings.cloudBackupPath || '');
         document.getElementById('setting-max-history').value = settings.maxHistoryEntries || 1000;
         syncCloudBackupControls();
@@ -5057,10 +5947,15 @@
         // App info
         window.electronAPI.getAppInfo().then(info => {
             appInfoCache = info;
-            document.getElementById('app-version').textContent = info.version || '2.0.0';
+            const resolvedVersion = info?.version || 'N/A';
+            const titleVersion = info?.version ? `v${info.version}` : 'v-';
+            document.getElementById('app-version').textContent = resolvedVersion;
             document.getElementById('data-path').textContent = info.path;
+            if (DOM.titlebarVersion) {
+                DOM.titlebarVersion.textContent = titleVersion;
+            }
             if (DOM.aboutVersion) {
-                DOM.aboutVersion.textContent = info.version || '2.0.0';
+                DOM.aboutVersion.textContent = resolvedVersion;
             }
             if (DOM.aboutDataPath) {
                 DOM.aboutDataPath.textContent = info.path || '-';
@@ -5219,25 +6114,37 @@
             return;
         }
 
-        if (window.appState.settings.confirmBeforeAttack) {
-            showConfirm(
-                'Confirm Attack',
-                `Attack ${target?.getDisplayName() || `User ${userId}`}?`,
-                () => {
-                    if (window.appState.settings.playAttackSound) {
-                        playSound('attack');
-                    }
-                    window.electronAPI.openAttack(userId);
-                    window.appState.recordAttack(userId, { source });
-                }
-            );
-        } else {
+        const performAttack = () => {
             if (window.appState.settings.playAttackSound) {
                 playSound('attack');
             }
             window.electronAPI.openAttack(userId);
             window.appState.recordAttack(userId, { source });
+        };
+
+        const confirmAttack = () => {
+            if (window.appState.settings.confirmBeforeAttack) {
+                showConfirm(
+                    'Confirm Attack',
+                    `Attack ${target?.getDisplayName() || `User ${userId}`}?`,
+                    performAttack
+                );
+            } else {
+                performAttack();
+            }
+        };
+
+        const recentActivityDays = Math.max(
+            0,
+            Number.parseInt(window.appState.settings.doNotAttackRecentActivityDays, 10) || 0
+        );
+
+        if (target && recentActivityDays > 0 && isTargetRecentlyActive(target, recentActivityDays)) {
+            showRecentActivityWarning(target, confirmAttack, recentActivityDays);
+            return;
         }
+
+        confirmAttack();
     }
 
     function handleProfile() {
@@ -5695,16 +6602,24 @@
     function getActionTargetIds(contextId) {
         const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
         const cid = parseInt(contextId, 10);
-        if (selectedIds.length > 1) {
-            if (selectedIds.includes(cid)) {
-                return selectedIds;
-            }
+        const hasContext = Number.isFinite(cid);
+        const selectionHasContext = hasContext && selectedIds.includes(cid);
+
+        if (selectionHasContext) {
+            return selectedIds.length ? selectedIds : [cid];
+        }
+
+        if (hasContext) {
             return [cid];
         }
-        if (selectedIds.length === 1) {
-            return selectedIds;
-        }
-        return Number.isFinite(cid) ? [cid] : [];
+
+        return selectedIds;
+    }
+
+    function getContextTargets(contextId) {
+        const ids = getActionTargetIds(contextId);
+        const targets = ids.map(id => window.appState.getTarget(id)).filter(Boolean);
+        return { ids, targets };
     }
 
     function hideContextMenu() {
@@ -5715,23 +6630,51 @@
 
     function updateContextMenuFavorite(userId) {
         if (!DOM.contextMenuFavorite) return;
-        const target = window.appState.getTarget(userId);
+        const { targets } = getContextTargets(userId);
         const label = DOM.contextMenuFavorite.querySelector('span');
-        const isFav = target?.isFavorite;
-        DOM.contextMenuFavorite.classList.toggle('active', !!isFav);
+        const favoriteCount = targets.filter(t => t.isFavorite).length;
+        const hasTargets = targets.length > 0;
+        const allFavorite = hasTargets && favoriteCount === targets.length;
+        const shouldAdd = hasTargets && favoriteCount < targets.length;
+        const multi = targets.length > 1;
+
+        DOM.contextMenuFavorite.classList.toggle('active', allFavorite);
+
         if (label) {
-            label.textContent = isFav ? 'Remove Favorite' : 'Mark Favorite';
+            if (!hasTargets) {
+                label.textContent = 'Toggle Favorite';
+            } else if (multi) {
+                label.textContent = shouldAdd
+                    ? `Add ${targets.length} to Favorites`
+                    : `Remove ${targets.length} from Favorites`;
+            } else {
+                label.textContent = allFavorite ? 'Remove Favorite' : 'Mark Favorite';
+            }
         }
     }
 
     function updateContextMenuWatch(userId) {
         if (!DOM.contextMenuWatch) return;
-        const target = window.appState.getTarget(userId);
+        const { targets } = getContextTargets(userId);
         const label = DOM.contextMenuWatch.querySelector('span');
-        const isWatching = !!target?.monitorOk;
-        DOM.contextMenuWatch.classList.toggle('active', isWatching);
+        const watchCount = targets.filter(t => t.monitorOk).length;
+        const hasTargets = targets.length > 0;
+        const allWatching = hasTargets && watchCount === targets.length;
+        const shouldWatch = hasTargets && watchCount < targets.length;
+        const multi = targets.length > 1;
+
+        DOM.contextMenuWatch.classList.toggle('active', allWatching);
+
         if (label) {
-            label.textContent = isWatching ? 'Ignore Status' : 'Watch Status';
+            if (!hasTargets) {
+                label.textContent = 'Watch Status';
+            } else if (multi) {
+                label.textContent = shouldWatch
+                    ? `Watch Status (${targets.length})`
+                    : `Ignore Status (${targets.length})`;
+            } else {
+                label.textContent = shouldWatch ? 'Watch Status' : 'Ignore Status';
+            }
         }
     }
 
@@ -5800,19 +6743,73 @@
             case 'profile':
                 window.electronAPI.openProfile(userId);
                 break;
-            case 'favorite':
-                await window.appState.toggleFavorite(userId);
+            case 'favorite': {
+                const { ids, targets } = getContextTargets(userId);
+                if (!targets.length) {
+                    showToast('No targets selected', 'info');
+                    break;
+                }
+
+                if (ids.length === 1) {
+                    await window.appState.toggleFavorite(ids[0]);
+                    updateContextMenuFavorite(ids[0]);
+                    break;
+                }
+
+                const favoriteCount = targets.filter(t => t.isFavorite).length;
+                const makeFavorite = favoriteCount < targets.length;
+                const result = await window.appState.setFavoritesForTargets(ids, makeFavorite);
+
+                if (!result?.success) {
+                    showToast(result?.error || 'Unable to update favorites', 'error');
+                    break;
+                }
+
                 updateContextMenuFavorite(userId);
+
+                if (result.updated > 0) {
+                    const message = makeFavorite
+                        ? `Added ${result.updated} target${result.updated === 1 ? '' : 's'} to favorites`
+                        : `Removed favorites from ${result.updated} target${result.updated === 1 ? '' : 's'}`;
+                    showToast(message, 'success');
+                } else {
+                    const infoMessage = makeFavorite
+                        ? 'All selected targets are already favorites'
+                        : 'No favorites to remove in selection';
+                    showToast(infoMessage, 'info');
+                }
                 break;
+            }
             case 'toggle-watch': {
-                const target = window.appState.getTarget(userId);
-                if (target) {
+                const { ids, targets } = getContextTargets(userId);
+                if (!targets.length) {
+                    showToast('No targets selected', 'info');
+                    break;
+                }
+
+                if (ids.length === 1) {
+                    const target = targets[0];
                     const monitorOk = !target.monitorOk;
-                    await window.appState.updateTarget(userId, { monitorOk });
-                    const updated = window.appState.getTarget(userId);
+                    await window.appState.updateTarget(target.userId, { monitorOk });
+                    const updated = window.appState.getTarget(target.userId);
                     syncReminderWatcher(updated);
-                    updateContextMenuWatch(userId);
+                    updateContextMenuWatch(target.userId);
                     showToast(monitorOk ? 'Status watch enabled' : 'Status watch disabled', monitorOk ? 'success' : 'info');
+                    break;
+                }
+
+                const watchCount = targets.filter(t => t.monitorOk).length;
+                const enableWatch = watchCount < targets.length;
+                const result = await window.appState.setMonitorForTargets(ids, enableWatch);
+
+                if (result?.success) {
+                    updateContextMenuWatch(userId);
+                    const message = enableWatch
+                        ? `Watching status for ${result.count} target${result.count === 1 ? '' : 's'}`
+                        : `Ignored status for ${result.count} target${result.count === 1 ? '' : 's'}`;
+                    showToast(message, enableWatch ? 'success' : 'info');
+                } else {
+                    showToast(result?.error || 'Unable to update watches', 'error');
                 }
                 break;
             }
@@ -6191,10 +7188,6 @@
                     e.preventDefault();
                     handleImportTargets();
                     break;
-                case 'e':
-                    e.preventDefault();
-                    handleExportTargets();
-                    break;
                 case 'k':
                     e.preventDefault();
                     handleCreateBackup();
@@ -6237,6 +7230,18 @@
                 case '3':
                     e.preventDefault();
                     switchView('statistics');
+                    break;
+                case '4':
+                    e.preventDefault();
+                    switchView('loot-timer');
+                    break;
+                case '5':
+                    e.preventDefault();
+                    switchView('bounties');
+                    break;
+                case '6':
+                    e.preventDefault();
+                    switchView('help');
                     break;
                 case 'a':
                     if (window.appState.currentView === 'targets') {
@@ -6341,22 +7346,26 @@
             const isOnline = window.appState.isOnline;
             const hasErrors = window.appState.api && window.appState.api.consecutiveFailures > 0;
 
-            // Remove all status classes
+            // Remove all status classes from both value and icon
             DOM.aboutApiStatus.classList.remove('api-status-online', 'api-status-error', 'api-status-missing');
+            DOM.aboutApiIcon?.classList.remove('api-status-online', 'api-status-error', 'api-status-missing');
 
             // Determine status and apply appropriate class
             if (!hasApiKey) {
                 // Red - API key is missing
-                DOM.aboutApiStatus.textContent = 'Missing API Key';
+                DOM.aboutApiStatus.textContent = 'Missing';
                 DOM.aboutApiStatus.classList.add('api-status-missing');
+                DOM.aboutApiIcon?.classList.add('api-status-missing');
             } else if (!isOnline || hasErrors) {
                 // Burnt orange - there are errors or offline
                 DOM.aboutApiStatus.textContent = hasErrors ? 'Error' : 'Offline';
                 DOM.aboutApiStatus.classList.add('api-status-error');
+                DOM.aboutApiIcon?.classList.add('api-status-error');
             } else {
                 // Green - connected and working
                 DOM.aboutApiStatus.textContent = 'Online';
                 DOM.aboutApiStatus.classList.add('api-status-online');
+                DOM.aboutApiIcon?.classList.add('api-status-online');
             }
         }
 
@@ -6457,6 +7466,20 @@
                 DOM.connectionDialog.classList.add('active');
                 updateConnectionDialogState();
             }
+        }
+    }
+
+    async function openBackupDialog() {
+        // Open the backup/restore dialog
+        if (window.electronAPI && window.electronAPI.openBackupDialog) {
+            try {
+                await window.electronAPI.openBackupDialog();
+            } catch (error) {
+                console.error('Failed to open backup dialog:', error);
+                showNotification('Failed to open backup dialog', 'error');
+            }
+        } else {
+            showNotification('Backup dialog not available', 'warning');
         }
     }
 
@@ -6899,13 +7922,96 @@
     });
 
     // ========================================================================
+    // RECENT ACTIVITY WARNING
+    // ========================================================================
+
+    /**
+     * Checks if a target was active within the specified number of days.
+     * @param {Object} target - The target object
+     * @param {number} days - Number of days to check
+     * @returns {boolean} True if target was active within the specified days
+     */
+    function isTargetRecentlyActive(target, days) {
+        if (!target || !target.lastActionTimestamp || days <= 0) {
+            return false;
+        }
+        const thresholdMs = days * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        const lastActionMs = target.lastActionTimestamp * 1000; // Convert from Unix timestamp
+        return (now - lastActionMs) < thresholdMs;
+    }
+
+    /**
+     * Shows the recent activity warning dialog.
+     * @param {Object} target - The target object
+     * @param {Function} onProceed - Callback to execute if user clicks "Attack Anyway"
+     * @param {number|null} days - Recent activity window in days
+     */
+    function showRecentActivityWarning(target, onProceed, days = null) {
+        if (!target) return;
+
+        const normalizedDays = Number.isFinite(days) ? days : Number.parseInt(days, 10);
+        const daysWindow = Number.isFinite(normalizedDays) && normalizedDays > 0 ? normalizedDays : null;
+        const daysBadge = daysWindow ? `<=${daysWindow}D` : '';
+        const messageEl = document.getElementById('recent-activity-message');
+
+        if (messageEl) {
+            if (daysWindow) {
+                const label = daysWindow === 1 ? 'day' : 'days';
+                messageEl.textContent = `This target has been active within the last ${daysWindow} ${label}. They may be online and could retaliate.`;
+            } else {
+                messageEl.textContent = 'This target has been active recently. They may be online and could retaliate.';
+            }
+        }
+
+        const badgeEl = document.getElementById('recent-activity-badge');
+        if (badgeEl) {
+            badgeEl.textContent = daysWindow ? `ACTIVE (${daysBadge})` : 'ACTIVE';
+            badgeEl.className = 'status-badge status-warning';
+            badgeEl.dataset.daysWindow = daysBadge;
+        }
+
+        const lastActionText = target.lastActionRelative
+            || (target.lastActionTimestamp
+                ? formatTimestamp(target.lastActionTimestamp * 1000)
+                : 'Unknown');
+
+        const titleEl = document.getElementById('recent-activity-title');
+        if (titleEl) {
+            titleEl.textContent = daysWindow
+                ? `Target Recently Active (${daysBadge})`
+                : 'Target Recently Active';
+        }
+
+        // Populate dialog
+        document.getElementById('recent-activity-target-name').textContent = target.getDisplayName?.() || `User ${target.userId}`;
+        document.getElementById('recent-activity-last-action').textContent = lastActionText;
+
+        pendingRecentActivityAction = onProceed;
+        openModal('modal-recent-activity-warning');
+    }
+
+    // Set up recent activity warning modal
+    document.getElementById('recent-activity-proceed')?.addEventListener('click', () => {
+        if (pendingRecentActivityAction) {
+            pendingRecentActivityAction();
+            pendingRecentActivityAction = null;
+        }
+        closeAllModals();
+    });
+
+    // ========================================================================
     // AUDIO PLAYBACK
     // ========================================================================
 
-    function playSound(soundName) {
+    function playSound(soundName, customVolume = null) {
         try {
             const audio = new Audio(`assets/${soundName}.wav`);
-            audio.volume = 0.5; // 50% volume
+            // Use custom volume if provided, otherwise use settings, fallback to 50%
+            const volume = customVolume !== null
+                ? customVolume / 100
+                : (window.appState?.settings?.soundVolume ?? 50) / 100;
+            audio.volume = Math.max(0, Math.min(1, volume));
             audio.play().catch(err => {
                 console.warn(`Failed to play sound ${soundName}:`, err);
             });
@@ -7361,8 +8467,973 @@
         return date.toLocaleString();
     }
 
+    function formatCurrency(value) {
+        if (value === null || value === undefined) return '--';
+        const num = Number(value);
+        if (!Number.isFinite(num)) return '--';
+        return `$${num.toLocaleString()}`;
+    }
+
+    function formatExpiry(timestamp) {
+        if (!timestamp) return 'No expiry';
+        const diff = timestamp - Date.now();
+        const abs = Math.abs(diff);
+        const days = Math.floor(abs / 86400000);
+        const hours = Math.floor((abs % 86400000) / 3600000);
+        const minutes = Math.floor((abs % 3600000) / 60000);
+        const parts = [];
+        if (days) parts.push(`${days}d`);
+        if (hours || parts.length === 0) parts.push(`${hours}h`);
+        if (parts.length < 2 && minutes) parts.push(`${minutes}m`);
+        const label = parts.join(' ');
+        return diff >= 0 ? `Expires in ${label}` : `Expired ${label} ago`;
+    }
+
     function safeHistoryArray(history) {
         return Array.isArray(history) ? history : [];
+    }
+
+    // ========================================================================
+    // BACKUP & RESTORE VIEW
+    // ========================================================================
+
+    let backupState = {
+        mode: 'export',
+        selectedData: {
+            targets: true,
+            groups: true,
+            attackHistory: true,
+            statistics: true,
+            settings: true
+        },
+        importFile: null,
+        importData: null,
+        conflictStrategy: 'merge',
+        destinationPreset: 'appdata',
+        customPath: '',
+        filename: '',
+        openAfterExport: true,
+        eventsBound: false
+    };
+
+    function initializeBackupView() {
+        console.log('[Backup] Initializing backup view');
+
+        // Initialize UI state
+        updateBackupHeader();
+        updateBackupTabs();
+        updateBackupViews();
+        loadBackupCounts();
+        loadDefaultPaths();
+        loadRecentBackups();
+        bindBackupEvents();
+    }
+
+    function bindBackupEvents() {
+        // Prevent duplicate event bindings
+        if (backupState.eventsBound) return;
+        backupState.eventsBound = true;
+
+        // Tab switching
+        document.querySelectorAll('.backup-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const mode = tab.dataset.mode;
+                if (mode) {
+                    backupState.mode = mode;
+                    updateBackupHeader();
+                    updateBackupTabs();
+                    updateBackupViews();
+                }
+            });
+        });
+
+        // Export checkbox options (using data-key)
+        document.querySelectorAll('.backup-option').forEach(item => {
+            item.addEventListener('click', () => {
+                const dataKey = item.dataset.key;
+                if (dataKey && backupState.selectedData.hasOwnProperty(dataKey)) {
+                    backupState.selectedData[dataKey] = !backupState.selectedData[dataKey];
+                    item.classList.toggle('checked', backupState.selectedData[dataKey]);
+                }
+            });
+        });
+
+        // Select All button
+        const selectAllBtn = document.getElementById('backup-select-all');
+        if (selectAllBtn) {
+            selectAllBtn.addEventListener('click', () => {
+                const allSelected = Object.values(backupState.selectedData).every(v => v);
+                Object.keys(backupState.selectedData).forEach(key => {
+                    backupState.selectedData[key] = !allSelected;
+                });
+                document.querySelectorAll('.backup-option').forEach(item => {
+                    const key = item.dataset.key;
+                    if (key) item.classList.toggle('checked', backupState.selectedData[key]);
+                });
+                selectAllBtn.textContent = allSelected ? 'Select All' : 'Deselect All';
+            });
+        }
+
+        // Preset buttons (using data-preset with "default" for appdata)
+        document.querySelectorAll('.backup-preset').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const preset = btn.dataset.preset;
+                if (preset) {
+                    // Map "default" to "appdata" internally
+                    backupState.destinationPreset = preset === 'default' ? 'appdata' : preset;
+                    updatePresetButtons();
+                    updatePathInputState();
+                    updateFullPathPreview();
+                }
+            });
+        });
+
+        // Browse button
+        const browseBtn = document.getElementById('backup-browse-btn');
+        if (browseBtn) {
+            browseBtn.addEventListener('click', handleBrowseClick);
+        }
+
+        // Path input
+        const pathInput = document.getElementById('backup-path-input');
+        if (pathInput) {
+            pathInput.addEventListener('input', () => {
+                backupState.customPath = pathInput.value;
+                updateFullPathPreview();
+            });
+        }
+
+        // Filename input
+        const filenameInput = document.getElementById('backup-filename-input');
+        if (filenameInput) {
+            filenameInput.addEventListener('input', () => {
+                backupState.filename = filenameInput.value;
+                updateFullPathPreview();
+            });
+        }
+
+        // Export button
+        const exportBtn = document.getElementById('backup-export-btn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', handleExportBackup);
+        }
+
+        // Open after export checkbox
+        const openCheckbox = document.getElementById('backup-open-folder');
+        if (openCheckbox) {
+            openCheckbox.addEventListener('change', () => {
+                backupState.openAfterExport = openCheckbox.checked;
+            });
+        }
+
+        // Refresh recent backups
+        const refreshBtn = document.getElementById('backup-refresh-list');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', loadRecentBackups);
+        }
+
+        // Drop zone
+        const dropZone = document.getElementById('backup-drop-zone');
+        if (dropZone) {
+            dropZone.addEventListener('click', () => {
+                document.getElementById('backup-file-input')?.click();
+            });
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+            dropZone.addEventListener('drop', handleFileDrop);
+        }
+
+        // File input
+        const fileInput = document.getElementById('backup-file-input');
+        if (fileInput) {
+            fileInput.addEventListener('change', handleFileSelect);
+        }
+
+        // Remove file button
+        const removeFileBtn = document.getElementById('backup-file-remove');
+        if (removeFileBtn) {
+            removeFileBtn.addEventListener('click', clearImportFile);
+        }
+
+        // Conflict resolution options (using data-value)
+        document.querySelectorAll('.backup-conflict-radio').forEach(option => {
+            option.addEventListener('click', () => {
+                const strategy = option.dataset.value;
+                if (strategy) {
+                    backupState.conflictStrategy = strategy;
+                    updateConflictRadios();
+                }
+            });
+        });
+
+        // Import/Restore button
+        const importBtn = document.getElementById('backup-import-btn');
+        if (importBtn) {
+            importBtn.addEventListener('click', handleRestoreBackup);
+        }
+
+        // Overlay dismiss button
+        const dismissBtn = document.getElementById('backup-overlay-dismiss');
+        if (dismissBtn) {
+            dismissBtn.addEventListener('click', hideBackupOverlay);
+        }
+    }
+
+    function updateBackupHeader() {
+        const icon = document.querySelector('.backup-header-icon');
+        const title = document.querySelector('.backup-header-text h1');
+        const desc = document.querySelector('.backup-header-text p');
+
+        if (icon) {
+            icon.classList.toggle('export-mode', backupState.mode === 'export');
+            icon.classList.toggle('import-mode', backupState.mode === 'import');
+        }
+
+        if (title) {
+            title.textContent = backupState.mode === 'export' ? 'Export Backup' : 'Restore Backup';
+        }
+
+        if (desc) {
+            desc.textContent = backupState.mode === 'export'
+                ? 'Create a backup of your data to a file'
+                : 'Restore your data from a backup file';
+        }
+    }
+
+    function updateBackupTabs() {
+        document.querySelectorAll('.backup-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.mode === backupState.mode);
+        });
+    }
+
+    function updateBackupViews() {
+        document.querySelectorAll('.backup-view').forEach(view => {
+            view.classList.toggle('active', view.id === `backup-view-${backupState.mode}`);
+        });
+    }
+
+    async function loadBackupCounts() {
+        try {
+            const [targets, groups, history, statistics, settings] = await Promise.all([
+                window.electronAPI.getTargets(),
+                window.electronAPI.getGroups(),
+                window.electronAPI.getAttackHistory(),
+                window.electronAPI.getStatistics(),
+                window.electronAPI.getSettings()
+            ]);
+
+            // Update export counts using the actual HTML IDs
+            const countTargets = document.getElementById('backup-count-targets');
+            const countGroups = document.getElementById('backup-count-groups');
+            const countHistory = document.getElementById('backup-count-history');
+            const countStats = document.getElementById('backup-count-stats');
+
+            if (countTargets) countTargets.textContent = Array.isArray(targets) ? targets.length : 0;
+            if (countGroups) countGroups.textContent = Array.isArray(groups) ? groups.length : 0;
+            if (countHistory) countHistory.textContent = Array.isArray(history) ? history.length : 0;
+            if (countStats) countStats.textContent = statistics ? 'Yes' : 'No';
+        } catch (error) {
+            console.error('[Backup] Failed to load counts:', error);
+        }
+    }
+
+    async function loadDefaultPaths() {
+        try {
+            if (window.electronAPI && window.electronAPI.invoke) {
+                const paths = await window.electronAPI.invoke('backup-get-paths');
+                if (paths) {
+                    // Map the returned paths to our state
+                    if (paths.default) {
+                        backupState.appDataPath = paths.default;
+                    }
+                    if (paths.desktop) {
+                        backupState.desktopPath = paths.desktop;
+                    }
+                    // Set default filename
+                    const date = new Date();
+                    const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
+                    backupState.filename = `TTT_Backup_${dateStr}`;
+
+                    const filenameInput = document.getElementById('backup-filename-input');
+                    if (filenameInput) {
+                        filenameInput.value = backupState.filename;
+                    }
+
+                    updatePresetButtons();
+                    updatePathInputState();
+                    updateFullPathPreview();
+                }
+            }
+        } catch (error) {
+            console.error('[Backup] Failed to load paths:', error);
+        }
+    }
+
+    function updatePresetButtons() {
+        document.querySelectorAll('.backup-preset').forEach(btn => {
+            // Map internal "appdata" to HTML "default"
+            const htmlPreset = backupState.destinationPreset === 'appdata' ? 'default' : backupState.destinationPreset;
+            btn.classList.toggle('active', btn.dataset.preset === htmlPreset);
+        });
+    }
+
+    function updatePathInputState() {
+        const pathInput = document.getElementById('backup-path-input');
+        const browseBtn = document.querySelector('.backup-browse-btn');
+
+        if (pathInput) {
+            if (backupState.destinationPreset === 'custom') {
+                pathInput.disabled = false;
+                pathInput.value = backupState.customPath;
+            } else if (backupState.destinationPreset === 'appdata') {
+                pathInput.disabled = true;
+                pathInput.value = backupState.appDataPath || '';
+            } else if (backupState.destinationPreset === 'desktop') {
+                pathInput.disabled = true;
+                pathInput.value = backupState.desktopPath || '';
+            }
+        }
+    }
+
+    function updateFullPathPreview() {
+        const preview = document.getElementById('backup-full-path');
+        if (!preview) return;
+
+        let basePath = '';
+        if (backupState.destinationPreset === 'appdata') {
+            basePath = backupState.appDataPath || '';
+        } else if (backupState.destinationPreset === 'desktop') {
+            basePath = backupState.desktopPath || '';
+        } else {
+            basePath = backupState.customPath || '';
+        }
+
+        const filename = (backupState.filename || 'TTT_Backup') + '.json';
+        const separator = basePath.includes('/') ? '/' : '\\';
+
+        preview.textContent = basePath ? `${basePath}${separator}${filename}` : 'Select a destination folder';
+    }
+
+    async function handleBrowseClick() {
+        try {
+            if (window.electronAPI && window.electronAPI.invoke) {
+                const result = await window.electronAPI.invoke('backup-choose-directory');
+                if (result && result.path) {
+                    backupState.destinationPreset = 'custom';
+                    backupState.customPath = result.path;
+                    updatePresetButtons();
+                    updatePathInputState();
+                    updateFullPathPreview();
+                }
+            }
+        } catch (error) {
+            console.error('[Backup] Failed to choose directory:', error);
+        }
+    }
+
+    async function loadRecentBackups() {
+        try {
+            if (window.electronAPI && window.electronAPI.invoke) {
+                const backups = await window.electronAPI.invoke('list-backups');
+                renderRecentBackups(backups || []);
+            }
+        } catch (error) {
+            console.error('[Backup] Failed to load recent backups:', error);
+            renderRecentBackups([]);
+        }
+    }
+
+    function renderRecentBackups(backups) {
+        const container = document.getElementById('backup-recent-list');
+        if (!container) return;
+
+        if (!backups || backups.length === 0) {
+            container.innerHTML = '<div class="backup-empty-recent">No recent backups found</div>';
+            return;
+        }
+
+        container.innerHTML = backups.slice(0, 5).map(backup => `
+            <div class="backup-recent-item" data-path="${escapeHtml(backup.path)}">
+                <div class="backup-recent-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                </div>
+                <div class="backup-recent-info">
+                    <div class="backup-recent-name">${escapeHtml(backup.name)}</div>
+                    <div class="backup-recent-date">${formatBackupDate(backup.date)}</div>
+                </div>
+                <button class="backup-recent-action" title="Open in folder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                        <polyline points="15 3 21 3 21 9"/>
+                        <line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+
+        // Bind click events for recent backups
+        container.querySelectorAll('.backup-recent-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                if (!e.target.closest('.backup-recent-action')) {
+                    const path = item.dataset.path;
+                    if (path) {
+                        loadBackupFile(path);
+                    }
+                }
+            });
+
+            const actionBtn = item.querySelector('.backup-recent-action');
+            if (actionBtn) {
+                actionBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const path = item.dataset.path;
+                    if (path && window.electronAPI && window.electronAPI.invoke) {
+                        await window.electronAPI.invoke('backup-reveal-in-folder', path);
+                    }
+                });
+            }
+        });
+    }
+
+    function formatBackupDate(timestamp) {
+        if (!timestamp) return 'Unknown';
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffDays === 0) {
+            return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        } else if (diffDays === 1) {
+            return `Yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        } else if (diffDays < 7) {
+            return `${diffDays} days ago`;
+        } else {
+            return date.toLocaleDateString();
+        }
+    }
+
+    async function handleExportBackup() {
+        // Show progress overlay
+        showBackupOverlay('export', 'Exporting backup...', 'Gathering your data');
+
+        try {
+            // Gather data to export
+            const [targets, groups, history, statistics, settings] = await Promise.all([
+                backupState.selectedData.targets ? window.electronAPI.getTargets() : null,
+                backupState.selectedData.groups ? window.electronAPI.getGroups() : null,
+                backupState.selectedData.attackHistory ? window.electronAPI.getAttackHistory() : null,
+                backupState.selectedData.statistics ? window.electronAPI.getStatistics() : null,
+                backupState.selectedData.settings ? window.electronAPI.getSettings() : null
+            ]);
+
+            const backupData = {
+                version: '1.0',
+                exportDate: new Date().toISOString(),
+                appVersion: await window.electronAPI.invoke('get-app-version'),
+                data: {}
+            };
+
+            if (targets) backupData.data.targets = targets;
+            if (groups) backupData.data.groups = groups;
+            if (history) backupData.data.attackHistory = history;
+            if (statistics) backupData.data.statistics = statistics;
+            if (settings) {
+                // Remove sensitive data from settings backup
+                const safeSettings = { ...settings };
+                delete safeSettings.apiKey;
+                backupData.data.settings = safeSettings;
+            }
+
+            // Determine export path
+            let basePath = '';
+            if (backupState.destinationPreset === 'appdata') {
+                basePath = backupState.appDataPath;
+            } else if (backupState.destinationPreset === 'desktop') {
+                basePath = backupState.desktopPath;
+            } else {
+                basePath = backupState.customPath;
+            }
+
+            const filename = (backupState.filename || 'TTT_Backup') + '.json';
+
+            // Export to path
+            const result = await window.electronAPI.invoke('backup-export-to-path', {
+                directory: basePath,
+                filename: filename,
+                data: backupData,
+                openFolder: false // We handle this separately
+            });
+
+            if (result && result.success) {
+                // Show success
+                showBackupResult('success', 'Backup Created!', result.path ? `Saved to: ${result.path}` : 'Your data has been exported successfully');
+
+                // Open folder if toggle is on
+                if (backupState.openAfterExport && result.path) {
+                    await window.electronAPI.invoke('backup-reveal-in-folder', result.path);
+                }
+
+                // Reload recent backups
+                loadRecentBackups();
+            } else {
+                showBackupResult('error', 'Export Failed', result?.error || 'An unknown error occurred');
+            }
+        } catch (error) {
+            console.error('[Backup] Export error:', error);
+            showBackupResult('error', 'Export Failed', error.message || 'An unknown error occurred');
+        }
+    }
+
+    function handleFileDrop(e) {
+        e.preventDefault();
+        const dropZone = e.currentTarget;
+        dropZone.classList.remove('dragover');
+
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) {
+            processImportFile(files[0]);
+        }
+    }
+
+    function handleFileSelect(e) {
+        const files = e.target?.files;
+        if (files && files.length > 0) {
+            processImportFile(files[0]);
+        }
+    }
+
+    async function processImportFile(file) {
+        if (!file) return;
+
+        // Validate file type
+        if (!file.name.endsWith('.json')) {
+            showNotification('Please select a valid JSON backup file', 'error');
+            return;
+        }
+
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+
+            // Validate backup structure
+            if (!data.version || !data.data) {
+                showNotification('Invalid backup file format', 'error');
+                return;
+            }
+
+            backupState.importFile = file;
+            backupState.importData = data;
+
+            updateDropZoneState(true);
+            updateFileInfo(file, data);
+            updateImportPreview(data);
+            updateImportCheckboxes(data);
+
+        } catch (error) {
+            console.error('[Backup] Failed to parse file:', error);
+            showNotification('Failed to read backup file', 'error');
+        }
+    }
+
+    async function loadBackupFile(filePath) {
+        try {
+            if (window.electronAPI && window.electronAPI.invoke) {
+                const result = await window.electronAPI.invoke('backup-import', { path: filePath, preview: true });
+                if (result && result.success && result.data) {
+                    backupState.importFile = { name: filePath.split(/[\\/]/).pop(), path: filePath };
+                    backupState.importData = result.data;
+
+                    // Switch to import tab
+                    backupState.mode = 'import';
+                    updateBackupHeader();
+                    updateBackupTabs();
+                    updateBackupViews();
+
+                    updateDropZoneState(true);
+                    updateFileInfo(backupState.importFile, result.data);
+                    updateImportPreview(result.data);
+                    updateImportCheckboxes(result.data);
+                }
+            }
+        } catch (error) {
+            console.error('[Backup] Failed to load backup file:', error);
+            showNotification('Failed to load backup file', 'error');
+        }
+    }
+
+    function updateDropZoneState(hasFile) {
+        const dropZone = document.getElementById('backup-drop-zone');
+        const dropText = dropZone?.querySelector('.backup-drop-text');
+        const dropHint = dropZone?.querySelector('.backup-drop-hint');
+
+        if (dropZone) {
+            dropZone.classList.toggle('has-file', hasFile);
+        }
+
+        if (dropText) {
+            dropText.textContent = hasFile ? 'File loaded successfully' : 'Drop backup file here or click to browse';
+        }
+
+        if (dropHint) {
+            dropHint.textContent = hasFile ? 'Click below to change file' : 'Supports .json backup files';
+        }
+    }
+
+    function updateFileInfo(file, data) {
+        const fileInfo = document.getElementById('backup-file-info');
+        const fileName = document.getElementById('backup-import-filename');
+        const fileMeta = document.getElementById('backup-import-meta');
+        const importOptions = document.getElementById('backup-import-options');
+        const importBtn = document.getElementById('backup-import-btn');
+
+        if (fileInfo) {
+            fileInfo.style.display = 'block';
+        }
+
+        if (fileName) {
+            fileName.textContent = file.name;
+        }
+
+        if (fileMeta) {
+            const dateStr = data.exportDate ? new Date(data.exportDate).toLocaleDateString() : 'Unknown';
+            fileMeta.textContent = `v${data.version || '1.0'} • ${dateStr} • App v${data.appVersion || 'Unknown'}`;
+        }
+
+        // Show import options section
+        if (importOptions) {
+            importOptions.style.display = 'block';
+        }
+
+        // Enable import button
+        if (importBtn) {
+            importBtn.disabled = false;
+        }
+    }
+
+    function updateImportPreview(data) {
+        // Update file contents preview using the actual HTML IDs
+        const targetCount = document.getElementById('backup-import-targets');
+        const groupCount = document.getElementById('backup-import-groups');
+        const historyCount = document.getElementById('backup-import-history');
+        const statsCount = document.getElementById('backup-import-stats');
+
+        if (targetCount) targetCount.textContent = data.data?.targets?.length || 0;
+        if (groupCount) groupCount.textContent = data.data?.groups?.length || 0;
+        if (historyCount) historyCount.textContent = data.data?.attackHistory?.length || 0;
+        if (statsCount) statsCount.textContent = data.data?.statistics ? 'Yes' : 'No';
+    }
+
+    function updateImportCheckboxes(data) {
+        // Update checkbox availability based on what's in the backup
+        const dataTypes = ['targets', 'groups', 'attackHistory', 'statistics', 'settings'];
+
+        dataTypes.forEach(type => {
+            const item = document.querySelector(`.backup-view-import .backup-checkbox-item[data-type="${type}"]`);
+            if (item) {
+                const hasData = data.data && data.data[type] !== undefined;
+                item.style.opacity = hasData ? '1' : '0.5';
+                item.style.pointerEvents = hasData ? 'auto' : 'none';
+
+                if (hasData) {
+                    item.classList.add('checked');
+                    backupState.selectedData[type] = true;
+                } else {
+                    item.classList.remove('checked');
+                    backupState.selectedData[type] = false;
+                }
+            }
+        });
+    }
+
+    function clearImportFile() {
+        backupState.importFile = null;
+        backupState.importData = null;
+
+        updateDropZoneState(false);
+
+        const fileInfo = document.getElementById('backup-file-info');
+        if (fileInfo) {
+            fileInfo.style.display = 'none';
+        }
+
+        const importOptions = document.getElementById('backup-import-options');
+        if (importOptions) {
+            importOptions.style.display = 'none';
+        }
+
+        const importBtn = document.getElementById('backup-import-btn');
+        if (importBtn) {
+            importBtn.disabled = true;
+        }
+
+        // Reset file input
+        const fileInput = document.getElementById('backup-file-input');
+        if (fileInput) {
+            fileInput.value = '';
+        }
+    }
+
+    function updateConflictRadios() {
+        document.querySelectorAll('.backup-conflict-radio').forEach(option => {
+            option.classList.toggle('selected', option.dataset.value === backupState.conflictStrategy);
+        });
+    }
+
+    async function handleRestoreBackup() {
+        if (!backupState.importData) {
+            showNotification('No backup file loaded', 'error');
+            return;
+        }
+
+        showBackupOverlay('import', 'Restoring backup...', 'Importing your data');
+
+        try {
+            const dataToImport = {};
+
+            // Collect selected data types
+            if (backupState.selectedData.targets && backupState.importData.data.targets) {
+                dataToImport.targets = backupState.importData.data.targets;
+            }
+            if (backupState.selectedData.groups && backupState.importData.data.groups) {
+                dataToImport.groups = backupState.importData.data.groups;
+            }
+            if (backupState.selectedData.attackHistory && backupState.importData.data.attackHistory) {
+                dataToImport.attackHistory = backupState.importData.data.attackHistory;
+            }
+            if (backupState.selectedData.statistics && backupState.importData.data.statistics) {
+                dataToImport.statistics = backupState.importData.data.statistics;
+            }
+            if (backupState.selectedData.settings && backupState.importData.data.settings) {
+                dataToImport.settings = backupState.importData.data.settings;
+            }
+
+            // Perform import based on conflict strategy
+            let result;
+            if (backupState.conflictStrategy === 'replace') {
+                // Full replace - clear existing and import
+                result = await performFullReplace(dataToImport);
+            } else if (backupState.conflictStrategy === 'skip') {
+                // Skip conflicts - only add new items
+                result = await performSkipImport(dataToImport);
+            } else {
+                // Merge - add new and update existing
+                result = await performMergeImport(dataToImport);
+            }
+
+            if (result.success) {
+                showBackupResult('success', 'Restore Complete!', `Successfully imported ${result.count || 0} items`);
+
+                // Refresh app state
+                await window.appState.initialize();
+                renderAll();
+            } else {
+                showBackupResult('error', 'Restore Failed', result.error || 'An unknown error occurred');
+            }
+
+        } catch (error) {
+            console.error('[Backup] Restore error:', error);
+            showBackupResult('error', 'Restore Failed', error.message || 'An unknown error occurred');
+        }
+    }
+
+    async function performFullReplace(data) {
+        try {
+            let count = 0;
+
+            if (data.targets) {
+                await window.electronAPI.saveTargets(data.targets);
+                count += data.targets.length;
+            }
+            if (data.groups) {
+                await window.electronAPI.saveGroups(data.groups);
+                count += data.groups.length;
+            }
+            if (data.attackHistory) {
+                await window.electronAPI.saveAttackHistory(data.attackHistory);
+                count += data.attackHistory.length;
+            }
+            if (data.statistics) {
+                await window.electronAPI.saveStatistics(data.statistics);
+                count += 1;
+            }
+            if (data.settings) {
+                const currentSettings = await window.electronAPI.getSettings();
+                // Preserve API key
+                const newSettings = { ...data.settings, apiKey: currentSettings?.apiKey };
+                await window.electronAPI.saveSettings(newSettings);
+                count += 1;
+            }
+
+            return { success: true, count };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async function performSkipImport(data) {
+        try {
+            let count = 0;
+
+            if (data.targets) {
+                const existing = await window.electronAPI.getTargets() || [];
+                const existingIds = new Set(existing.map(t => t.id));
+                const newTargets = data.targets.filter(t => !existingIds.has(t.id));
+                if (newTargets.length > 0) {
+                    await window.electronAPI.saveTargets([...existing, ...newTargets]);
+                    count += newTargets.length;
+                }
+            }
+            if (data.groups) {
+                const existing = await window.electronAPI.getGroups() || [];
+                const existingIds = new Set(existing.map(g => g.id));
+                const newGroups = data.groups.filter(g => !existingIds.has(g.id));
+                if (newGroups.length > 0) {
+                    await window.electronAPI.saveGroups([...existing, ...newGroups]);
+                    count += newGroups.length;
+                }
+            }
+            if (data.attackHistory) {
+                const existing = await window.electronAPI.getAttackHistory() || [];
+                const existingIds = new Set(existing.map(h => h.id || `${h.timestamp}_${h.targetId}`));
+                const newHistory = data.attackHistory.filter(h => !existingIds.has(h.id || `${h.timestamp}_${h.targetId}`));
+                if (newHistory.length > 0) {
+                    await window.electronAPI.saveAttackHistory([...existing, ...newHistory]);
+                    count += newHistory.length;
+                }
+            }
+
+            return { success: true, count };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async function performMergeImport(data) {
+        try {
+            let count = 0;
+
+            if (data.targets) {
+                const existing = await window.electronAPI.getTargets() || [];
+                const existingMap = new Map(existing.map(t => [t.id, t]));
+
+                data.targets.forEach(t => {
+                    if (existingMap.has(t.id)) {
+                        // Update existing - merge properties
+                        const existingTarget = existingMap.get(t.id);
+                        existingMap.set(t.id, { ...existingTarget, ...t });
+                    } else {
+                        existingMap.set(t.id, t);
+                    }
+                    count++;
+                });
+
+                await window.electronAPI.saveTargets(Array.from(existingMap.values()));
+            }
+            if (data.groups) {
+                const existing = await window.electronAPI.getGroups() || [];
+                const existingMap = new Map(existing.map(g => [g.id, g]));
+
+                data.groups.forEach(g => {
+                    if (existingMap.has(g.id)) {
+                        const existingGroup = existingMap.get(g.id);
+                        existingMap.set(g.id, { ...existingGroup, ...g });
+                    } else {
+                        existingMap.set(g.id, g);
+                    }
+                    count++;
+                });
+
+                await window.electronAPI.saveGroups(Array.from(existingMap.values()));
+            }
+            if (data.attackHistory) {
+                const existing = await window.electronAPI.getAttackHistory() || [];
+                const existingIds = new Set(existing.map(h => h.id || `${h.timestamp}_${h.targetId}`));
+                const newHistory = data.attackHistory.filter(h => !existingIds.has(h.id || `${h.timestamp}_${h.targetId}`));
+                await window.electronAPI.saveAttackHistory([...existing, ...newHistory]);
+                count += newHistory.length;
+            }
+            if (data.statistics) {
+                const existing = await window.electronAPI.getStatistics() || {};
+                const merged = { ...existing, ...data.statistics };
+                await window.electronAPI.saveStatistics(merged);
+                count++;
+            }
+            if (data.settings) {
+                const currentSettings = await window.electronAPI.getSettings() || {};
+                // Preserve API key and merge other settings
+                const newSettings = { ...currentSettings, ...data.settings, apiKey: currentSettings.apiKey };
+                await window.electronAPI.saveSettings(newSettings);
+                count++;
+            }
+
+            return { success: true, count };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    function showBackupOverlay(type, text, subtext) {
+        const overlay = document.getElementById('backup-overlay');
+        const spinner = document.getElementById('backup-spinner');
+        const resultIcon = document.getElementById('backup-result-icon');
+        const overlayText = document.getElementById('backup-overlay-text');
+        const overlaySubtext = document.getElementById('backup-overlay-subtext');
+        const dismissBtn = document.getElementById('backup-overlay-dismiss');
+
+        if (overlay) {
+            overlay.classList.add('visible');
+            overlay.style.display = 'flex';
+        }
+        if (spinner) spinner.style.display = 'block';
+        if (resultIcon) resultIcon.style.display = 'none';
+        if (overlayText) overlayText.textContent = text;
+        if (overlaySubtext) overlaySubtext.textContent = subtext;
+        if (dismissBtn) dismissBtn.style.display = 'none';
+    }
+
+    function showBackupResult(type, text, subtext) {
+        const overlay = document.getElementById('backup-overlay');
+        const spinner = document.getElementById('backup-spinner');
+        const resultIcon = document.getElementById('backup-result-icon');
+        const overlayText = document.getElementById('backup-overlay-text');
+        const overlaySubtext = document.getElementById('backup-overlay-subtext');
+        const dismissBtn = document.getElementById('backup-overlay-dismiss');
+
+        if (spinner) spinner.style.display = 'none';
+        if (resultIcon) {
+            resultIcon.style.display = 'block';
+            resultIcon.className = `backup-result-icon ${type}`;
+        }
+        if (overlayText) overlayText.textContent = text;
+        if (overlaySubtext) overlaySubtext.textContent = subtext;
+        if (dismissBtn) dismissBtn.style.display = 'block';
+
+        if (overlay) {
+            overlay.classList.add('visible');
+            overlay.style.display = 'flex';
+        }
+    }
+
+    function hideBackupOverlay() {
+        const overlay = document.getElementById('backup-overlay');
+        if (overlay) {
+            overlay.classList.remove('visible');
+            overlay.style.display = 'none';
+        }
+
+        // Clear import state on success
+        if (backupState.importData) {
+            clearImportFile();
+        }
     }
 
     // ========================================================================
@@ -7374,6 +9445,10 @@
 
         // Cache DOM elements
         cacheDOMElements();
+
+        // Build cloud provider dropdown with icons
+        buildCloudProviderList();
+        selectCloudProvider(DOM.settingCloudProvider?.value || 'google-drive');
 
         // Bind UI events
         bindEvents();
@@ -7413,8 +9488,34 @@
             });
         }
 
+        // Listen for backup import completion
+        if (window.electronAPI && window.electronAPI.onBackupImported) {
+            window.electronAPI.onBackupImported(async () => {
+                console.log('[Backup] Import completed, refreshing data');
+                showNotification('Backup imported successfully! Refreshing data...', 'success');
+                // Reload all data from store
+                try {
+                    const [targets, groups, settings, attackHistory, statistics] = await Promise.all([
+                        window.electronAPI.getTargets(),
+                        window.electronAPI.getGroups(),
+                        window.electronAPI.getSettings(),
+                        window.electronAPI.getAttackHistory(),
+                        window.electronAPI.getStatistics()
+                    ]);
+                    window.appState.targets = targets || [];
+                    window.appState.groups = groups || [];
+                    window.appState.settings = settings || {};
+                    window.appState.attackHistory = attackHistory || [];
+                    window.appState.statistics = statistics || {};
+                    renderAll();
+                } catch (error) {
+                    console.error('[Backup] Failed to refresh after import:', error);
+                }
+            });
+        }
+
         // Update WiFi icon periodically (every 5 seconds)
-        setInterval(updateWifiIcon, 5000);
+        wifiIconInterval = setInterval(updateWifiIcon, 5000);
     }
 
     // Wait for DOM ready
