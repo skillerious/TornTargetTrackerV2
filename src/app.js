@@ -35,6 +35,8 @@
         targetList: null,
         targetsCount: null,
         sortBtns: null,
+        attackTrackerToggle: null,
+        attackTrackerReset: null,
 
         // Header buttons
         addTargetBtn: null,
@@ -114,9 +116,15 @@
         ratePopoverRecent: null,
         ratePopoverUtilization: null,
         ratePopoverPenalty: null,
-        ratePopoverPenaltyRow: null,
+        ratePopoverPenaltyCard: null,
         ratePopoverSuccess: null,
         ratePopoverFailed: null,
+        ratePopoverWindow: null,
+        ratePopoverNextToken: null,
+        rateChipState: null,
+        rateMeterFill: null,
+        rateMeterAvailable: null,
+        rateMeterMax: null,
 
         // Command palette
         commandPaletteOverlay: null,
@@ -205,6 +213,8 @@
         bountyTargetInput: null,
         bountyRewardInput: null,
         bountyAddButton: null,
+        bountyEmptyAddButton: null,
+        bountyEmptyRewardButton: null,
         bountyList: null,
         bountyEmptyState: null,
         bountyWatchlist: null,
@@ -255,6 +265,7 @@
     let connectionCheckInProgress = false;
     let attackPreventionTargetId = null;
     const activeCountdownTargets = new Set();
+    const targetMetaCache = new Map();
     const reminderWatchers = new Map();
     const recentReadyNotifications = new Map();
     let historyFilters = { range: '24h', query: '', queryLower: '' };
@@ -269,6 +280,11 @@
         autoRefreshEnabled: false,
         lastRefreshAt: null
     };
+    let navigationRefreshQueue = Promise.resolve();
+    let lastSelectedTargetId = null;
+    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const zeroRefreshTracker = new Map();
+    const statusRenderCache = new Map();
 
     const menubarState = {
         activeMenuId: null,
@@ -438,6 +454,8 @@
         DOM.targetList = document.getElementById('target-list');
         DOM.targetsCount = document.getElementById('targets-count');
         DOM.sortBtns = document.querySelectorAll('.sort-btn');
+        DOM.attackTrackerToggle = document.getElementById('attack-tracker-toggle');
+        DOM.attackTrackerReset = document.getElementById('attack-tracker-reset');
 
         // Header buttons
         DOM.addTargetBtn = document.getElementById('add-target-btn');
@@ -490,6 +508,16 @@
         DOM.detailIntelDex = document.getElementById('detail-intel-dex');
         DOM.detailIntelTotal = document.getElementById('detail-intel-total');
         DOM.detailIntelFreshness = document.getElementById('detail-intel-freshness');
+        DOM.btnEditIntel = document.getElementById('btn-edit-intel');
+        DOM.btnSaveIntel = document.getElementById('btn-save-intel');
+        DOM.btnCancelIntel = document.getElementById('btn-cancel-intel');
+        DOM.intelActionsView = document.getElementById('intel-actions-view');
+        DOM.intelActionsEdit = document.getElementById('intel-actions-edit');
+        DOM.inputIntelStr = document.getElementById('input-intel-str');
+        DOM.inputIntelDef = document.getElementById('input-intel-def');
+        DOM.inputIntelSpd = document.getElementById('input-intel-spd');
+        DOM.inputIntelDex = document.getElementById('input-intel-dex');
+        DOM.intelTotalAuto = document.getElementById('intel-total-auto');
         DOM.detailHistoryList = document.getElementById('detail-history-list');
 
         // Action buttons
@@ -517,9 +545,19 @@
         DOM.ratePopoverRecent = document.getElementById('rate-popover-recent');
         DOM.ratePopoverUtilization = document.getElementById('rate-popover-utilization');
         DOM.ratePopoverPenalty = document.getElementById('rate-popover-penalty');
-        DOM.ratePopoverPenaltyRow = document.getElementById('rate-popover-penalty-row');
         DOM.ratePopoverSuccess = document.getElementById('rate-popover-success');
+        DOM.ratePopoverSuccessPercent = document.getElementById('rate-popover-success-percent');
+        DOM.ratePopoverSuccessBar = document.getElementById('rate-popover-success-bar');
         DOM.ratePopoverFailed = document.getElementById('rate-popover-failed');
+        DOM.ratePopoverFailedPercent = document.getElementById('rate-popover-failed-percent');
+        DOM.ratePopoverFailedBar = document.getElementById('rate-popover-failed-bar');
+        DOM.ratePopoverWindow = document.getElementById('rate-popover-window');
+        DOM.ratePopoverNextToken = document.getElementById('rate-popover-next-token');
+        DOM.rateChipState = document.getElementById('rate-chip-state');
+        DOM.ratePopoverPenaltyCard = document.getElementById('rate-popover-penalty-card');
+        DOM.rateMeterFill = document.getElementById('rate-meter-fill');
+        DOM.rateMeterAvailable = document.getElementById('rate-meter-available');
+        DOM.rateMeterMax = document.getElementById('rate-meter-max');
 
         // Command palette
         DOM.commandPaletteOverlay = document.getElementById('command-palette-overlay');
@@ -615,6 +653,8 @@
         DOM.bountyTargetInput = document.getElementById('bounty-target-id');
         DOM.bountyRewardInput = document.getElementById('bounty-reward');
         DOM.bountyAddButton = document.getElementById('btn-add-bounty');
+        DOM.bountyEmptyAddButton = document.getElementById('btn-empty-add-bounty');
+        DOM.bountyEmptyRewardButton = document.getElementById('btn-empty-focus-reward');
         DOM.bountyList = document.getElementById('bounty-list');
         DOM.bountyEmptyState = document.getElementById('bounty-empty-state');
         DOM.bountyWatchlist = document.getElementById('bounty-watchlist');
@@ -1236,6 +1276,10 @@
 
         // Target list interactions
         DOM.targetList?.addEventListener('dblclick', handleTargetListDoubleClick);
+        if (DOM.targetList) {
+            DOM.targetList.addEventListener('click', handleTargetListClickDelegated);
+            DOM.targetList.addEventListener('contextmenu', handleTargetListContextMenuDelegated);
+        }
 
         // Sort buttons
         DOM.sortBtns.forEach(btn => {
@@ -1245,6 +1289,19 @@
                 DOM.sortBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
             });
+        });
+
+        // Attack tracker controls
+        DOM.attackTrackerToggle?.addEventListener('click', () => {
+            const tracker = window.appState.attackTracker || {};
+            const nextState = !tracker.enabled;
+            const snapshot = window.appState.setAttackTrackerEnabled(nextState);
+            showToast(snapshot.enabled ? 'Attack tracker enabled' : 'Attack tracker disabled', snapshot.enabled ? 'success' : 'info');
+        });
+
+        DOM.attackTrackerReset?.addEventListener('click', () => {
+            window.appState.resetAttackTracker();
+            showToast('Attack tracker cleared', 'success');
         });
 
         // Add buttons
@@ -1283,6 +1340,23 @@
         DOM.detailMonitorOk?.addEventListener('change', handleMonitorToggle);
         DOM.detailWatchBtn?.addEventListener('click', handleWatchButtonToggle);
         DOM.btnRefreshIntel?.addEventListener('click', () => refreshSelectedIntel(true));
+        DOM.btnEditIntel?.addEventListener('click', enterIntelEditMode);
+        DOM.btnSaveIntel?.addEventListener('click', saveIntelEdits);
+        DOM.btnCancelIntel?.addEventListener('click', cancelIntelEdits);
+        // Real-time total calculation during editing
+        [DOM.inputIntelStr, DOM.inputIntelDef, DOM.inputIntelSpd, DOM.inputIntelDex].forEach(input => {
+            input?.addEventListener('input', updateIntelTotalPreview);
+            // Keyboard shortcuts in edit mode
+            input?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveIntelEdits();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelIntelEdits();
+                }
+            });
+        });
         DOM.detailNotesTemplates?.forEach(btn => {
             btn.addEventListener('click', () => insertNotesTemplate(btn.dataset.notesTemplate || ''));
         });
@@ -1496,6 +1570,14 @@
         DOM.btnRefreshBountyStats?.addEventListener('click', handleRefreshBountyStats);
         DOM.bountyAlertDismiss?.addEventListener('click', handleDismissBountyAlert);
         DOM.bountyAddButton?.addEventListener('click', handleAddBounty);
+        DOM.bountyEmptyAddButton?.addEventListener('click', () => {
+            DOM.bountyTargetInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            DOM.bountyTargetInput?.focus({ preventScroll: true });
+        });
+        DOM.bountyEmptyRewardButton?.addEventListener('click', () => {
+            DOM.bountyRewardInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            DOM.bountyRewardInput?.focus({ preventScroll: true });
+        });
         DOM.bountyList?.addEventListener('click', handleBountyListClick);
         [DOM.bountyTargetInput, DOM.bountyRewardInput].forEach(input => {
             input?.addEventListener('keydown', (e) => {
@@ -1594,7 +1676,6 @@
 
         // Settings toggles
         const settingBindings = [
-            ['setting-auto-refresh', 'autoRefresh'],
             ['setting-notifications', 'notifications'],
             ['setting-sound', 'soundEnabled'],
             ['setting-compact', 'compactMode'],
@@ -1613,6 +1694,7 @@
             ['setting-notify-added', 'notifyOnTargetAdded'],
             ['setting-notify-removed', 'notifyOnTargetRemoved'],
             ['setting-notify-status', 'notifyOnStatusChange'],
+            ['setting-auto-refresh', 'autoRefresh'],
             ['setting-auto-backup', 'autoBackupEnabled'],
             ['setting-backup-preop', 'backupBeforeBulk'],
             ['setting-cloud-backup', 'cloudBackupEnabled'],
@@ -1661,6 +1743,7 @@
 
         // Numeric settings
         document.getElementById('setting-refresh-interval')?.addEventListener('change', (e) => {
+            if (e.target.disabled) return;
             const value = Math.max(10, Math.min(300, parseInt(e.target.value) || 30));
             e.target.value = value;
             window.appState.updateSettings({ refreshInterval: value });
@@ -1788,6 +1871,66 @@
         document.getElementById('btn-backup')?.addEventListener('click', handleCreateBackup);
     }
 
+    async function refreshTargetSafe(id) {
+        if (!Number.isFinite(id)) return;
+        if (!window.appState.getTarget(id)) return;
+        try {
+            await window.appState.refreshTarget(id);
+        } catch (error) {
+            console.warn(`[Navigation Refresh] Failed to refresh target ${id}:`, error);
+        }
+    }
+
+    async function refreshTargetWithRetry(id) {
+        await refreshTargetSafe(id);
+        const updated = window.appState.getTarget(id);
+        // If target still looks attackable, retry once shortly after navigation to capture hospital/jail transitions
+        if (updated && updated.isAttackable()) {
+            await wait(800);
+            await refreshTargetSafe(id);
+        }
+    }
+
+    function requestStatusRecheck(userId) {
+        const now = Date.now();
+        const last = zeroRefreshTracker.get(userId) || 0;
+        if (now - last < 5000) return;
+        zeroRefreshTracker.set(userId, now);
+        refreshTargetSafe(userId);
+    }
+
+    /**
+     * Trigger refresh for the selected target.
+     * Only refreshes the newly clicked target if its data is stale (>30s old).
+     * Previous target is NOT refreshed to avoid cascading API calls.
+     *
+     * Rate limit strategy:
+     * - Uses staleness check to avoid redundant calls
+     * - Time-sensitive targets (hospital/jail) use 15s staleness threshold
+     * - Normal targets use 30s staleness threshold
+     */
+    function triggerSelectionRefresh(previousId, nextId) {
+        const apiReady = window.appState?.api && window.appState.api.hasApiKey();
+        if (!apiReady) return;
+
+        const normalizedNext = Number.parseInt(nextId, 10);
+        if (!Number.isFinite(normalizedNext)) return;
+        if (!window.appState.getTarget(normalizedNext)) return;
+
+        // Only refresh the clicked target - NOT the previous one
+        // This fixes the cascading refresh issue
+        navigationRefreshQueue = navigationRefreshQueue.catch(() => {}).then(async () => {
+            // Use staleness-based refresh to avoid wasting API calls
+            // Will skip if data is fresh (<30s old, or <15s for hospital/jail)
+            if (window.appState.refreshTargetIfStale) {
+                await window.appState.refreshTargetIfStale(normalizedNext);
+            } else {
+                // Fallback if method doesn't exist
+                await refreshTargetWithRetry(normalizedNext);
+            }
+        });
+    }
+
     function bindStateEvents() {
         const state = window.appState;
 
@@ -1812,21 +1955,21 @@
                 rateLimitStatus: window.appState.limiter?.getStatus?.()
             });
 
-            // Hook into rate limiter for real-time updates
-            if (state.limiter && state.limiter.onStatusChange) {
-                state.limiter.onStatusChange = (status) => {
-                    updateRateText(status);
+        // Hook into rate limiter for real-time updates
+        if (state.limiter) {
+            state.limiter.onStatusChange = (status) => {
+                updateRateText(status);
 
-                    // Update connection dialog if it's open
-                    if (DOM.connectionDialog?.classList.contains('active')) {
-                        updateConnectionDialogState();
-                    }
+                // Update connection dialog if it's open
+                if (DOM.connectionDialog?.classList.contains('active')) {
+                    updateConnectionDialogState();
+                }
 
-                    if (DOM.onboardingOverlay?.classList.contains('visible')) {
-                        updateOnboardingStats();
-                    }
-                };
-            }
+                if (DOM.onboardingOverlay?.classList.contains('visible')) {
+                    updateOnboardingStats();
+                }
+            };
+        }
 
             updateBountyAlertUI();
         });
@@ -1837,9 +1980,6 @@
             updateStatusBar();
             renderGroups();
             renderHelpCenter();
-            if (state.currentView === 'bounties') {
-                renderBountyWatchlist();
-            }
             refreshMenubarMenuState();
             if (onboardingWaitCondition?.type === 'targets') {
                 const baseline = onboardingWaitCondition.baseline || 0;
@@ -1869,7 +2009,7 @@
                 renderStatistics();
             }
             if (state.currentView === 'bounties') {
-                renderBountyWatchlist();
+                updateBountyItemsForTarget(target.userId);
             }
             // Update tray with current counts
             window.electronAPI?.setTrayStatus?.({
@@ -1889,6 +2029,11 @@
             }
         });
 
+        // Track when refreshTarget() sends notifications to avoid duplicates in notifyTargetOkay()
+        state.on('target-notified', ({ userId, timestamp }) => {
+            recentReadyNotifications.set(userId, timestamp);
+        });
+
         state.on('target-removed', () => {
             renderTargetList();
             updateFilterCounts();
@@ -1904,9 +2049,17 @@
                 ? (selection.selectedIds || [])
                 : (selection ? [selection] : []);
 
+            // Exit intel edit mode when selection changes
+            if (intelEditMode) {
+                exitIntelEditMode();
+            }
+
             if (primaryId && state.currentView !== 'targets') {
                 switchView('targets');
             }
+            const previousPrimaryId = lastSelectedTargetId;
+            lastSelectedTargetId = primaryId ?? null;
+            triggerSelectionRefresh(previousPrimaryId, primaryId);
             updateTargetListSelection(selectedIds);
             updateSelectionToolbar(selectedIds);
             if (primaryId) {
@@ -1940,12 +2093,9 @@
         });
 
         state.on('refresh-started', () => {
-            DOM.statusRefresh.style.display = 'flex';
+            hideRefreshStatusUI();
             DOM.refreshAllBtn?.classList.add('spinning');
-            DOM.refreshText.textContent = 'Refreshing...';
-            DOM.progressFill.style.width = '0%';
             updateRateText(window.appState.limiter.getStatus());
-            updateNextRefreshStatus(window.appState.getStatistics());
             window.electronAPI?.setTrayStatus?.({
                 targets: window.appState.getTargets().length,
                 attackable: window.appState.getTargets().filter(t => t.isAttackable()).length,
@@ -1960,41 +2110,10 @@
         });
 
         state.on('refresh-progress', (progress) => {
-            // Handle pause state with countdown
-            if (progress.paused) {
-                const pauseSeconds = Math.ceil(progress.pauseDuration / 1000);
-                DOM.refreshText.textContent = `⏸ ${progress.pauseReason} (${pauseSeconds}s)`;
-                DOM.refreshAllBtn?.classList.remove('spinning');
-
-                // Countdown timer during pause
-                let remainingSeconds = pauseSeconds;
-                const countdownInterval = setInterval(() => {
-                    remainingSeconds--;
-                    if (remainingSeconds > 0) {
-                        DOM.refreshText.textContent = `⏸ ${progress.pauseReason} (${remainingSeconds}s)`;
-                    } else {
-                        clearInterval(countdownInterval);
-                        DOM.refreshText.textContent = 'Resuming refresh...';
-                        DOM.refreshAllBtn?.classList.add('spinning');
-                    }
-                }, 1000);
-
-                // Store interval for cleanup
-                pauseCountdownIntervals.push(countdownInterval);
-            } else {
-                // Clear any pause countdown intervals
-                pauseCountdownIntervals.forEach(interval => clearInterval(interval));
-                pauseCountdownIntervals = [];
-
-                // Normal refresh progress
-                DOM.refreshAllBtn?.classList.add('spinning');
-                DOM.refreshText.textContent = `Refreshing ${progress.current}/${progress.total}...`;
-                DOM.progressFill.style.width = `${progress.percent}%`;
-                if (DOM.statusNextRefreshText) {
-                    DOM.statusNextRefreshText.textContent = `Refreshing ${progress.current}/${progress.total}...`;
-                }
-            }
-
+            pauseCountdownIntervals.forEach(interval => clearInterval(interval));
+            pauseCountdownIntervals = [];
+            hideRefreshStatusUI();
+            DOM.refreshAllBtn?.classList.add('spinning');
             updateRateText(window.appState.limiter.getStatus());
             window.electronAPI?.setTrayStatus?.({
                 targets: progress.total,
@@ -2016,9 +2135,8 @@
             pauseCountdownIntervals.forEach(interval => clearInterval(interval));
             pauseCountdownIntervals = [];
 
-            DOM.statusRefresh.style.display = 'none';
+            hideRefreshStatusUI();
             DOM.refreshAllBtn?.classList.remove('spinning');
-            DOM.progressFill.style.width = '0%';
             updateStatusBar();
             if (state.currentView === 'statistics') {
                 renderStatistics();
@@ -2041,9 +2159,8 @@
             pauseCountdownIntervals.forEach(interval => clearInterval(interval));
             pauseCountdownIntervals = [];
 
-            DOM.statusRefresh.style.display = 'none';
+            hideRefreshStatusUI();
             DOM.refreshAllBtn?.classList.remove('spinning');
-            DOM.progressFill.style.width = '0%';
             updateStatusBar();
         });
 
@@ -2056,6 +2173,11 @@
 
         state.on('error', (message) => {
             showToast(message, 'error');
+        });
+
+        state.on('attack-tracker-changed', () => {
+            updateAttackTrackerUI();
+            renderTargetList();
         });
 
         state.on('settings-changed', () => {
@@ -2345,6 +2467,90 @@
     let renderedTargetIds = [];
     let isFullRenderNeeded = true;
 
+    function updateAttackTrackerUI(targetsInView = null) {
+        if (!DOM.attackTrackerToggle) return;
+
+        const tracker = window.appState.getAttackTrackerSnapshot
+            ? window.appState.getAttackTrackerSnapshot()
+            : { enabled: false, startedAt: null, completedIds: [] };
+        const targets = Array.isArray(targetsInView)
+            ? targetsInView
+            : (window.appState.getFilteredTargets ? window.appState.getFilteredTargets() : []);
+        const targetIds = targets.map(t => t.userId);
+        const counts = window.appState.getAttackTrackerCounts
+            ? window.appState.getAttackTrackerCounts(targetIds)
+            : { done: 0, total: targetIds.length };
+
+        DOM.attackTrackerToggle.classList.toggle('active', tracker.enabled);
+        DOM.attackTrackerToggle.classList.toggle('complete', tracker.enabled && counts.total > 0 && counts.done >= counts.total);
+        DOM.attackTrackerToggle.title = tracker.enabled
+            ? `Tracker on · ${counts.done}/${counts.total} done`
+            : 'Enable attack tracker';
+        DOM.attackTrackerToggle.setAttribute('aria-pressed', tracker.enabled ? 'true' : 'false');
+
+        if (DOM.attackTrackerReset) {
+            DOM.attackTrackerReset.disabled = !tracker.enabled;
+            DOM.attackTrackerReset.title = tracker.enabled ? 'Reset tracker progress' : 'Enable tracker to reset';
+            DOM.attackTrackerReset.setAttribute('aria-disabled', tracker.enabled ? 'false' : 'true');
+        }
+        if (tracker.enabled && tracker.completedIds) {
+            DOM.attackTrackerToggle.setAttribute('data-progress', `${counts.done}/${counts.total}`);
+        } else {
+            DOM.attackTrackerToggle.removeAttribute('data-progress');
+        }
+    }
+
+    function resetTargetMetaCache() {
+        targetMetaCache.clear();
+    }
+
+    function updateTargetMetaCache(userId, element) {
+        if (!userId) return;
+        if (element && element.isConnected) {
+            targetMetaCache.set(userId, element);
+        } else {
+            targetMetaCache.delete(userId);
+        }
+    }
+
+    function getTargetMetaElement(userId) {
+        const cached = targetMetaCache.get(userId);
+        if (cached && cached.isConnected) return cached;
+
+        const el = DOM.targetList?.querySelector(`[data-user-id="${userId}"] .target-meta`) || null;
+        if (el) {
+            targetMetaCache.set(userId, el);
+        } else {
+            targetMetaCache.delete(userId);
+        }
+        return el;
+    }
+
+    function resolveTargetIdFromEvent(event) {
+        const item = event.target.closest('.target-item');
+        if (!item || !DOM.targetList?.contains(item)) return null;
+        const id = parseInt(item.dataset.userId, 10);
+        return Number.isFinite(id) ? id : null;
+    }
+
+    function handleTargetListClickDelegated(event) {
+        const userId = resolveTargetIdFromEvent(event);
+        if (!userId) return;
+
+        if (window.appState.currentView !== 'targets') {
+            switchView('targets');
+        }
+        handleTargetItemClick(event, userId);
+    }
+
+    function handleTargetListContextMenuDelegated(event) {
+        const userId = resolveTargetIdFromEvent(event);
+        if (!userId) return;
+
+        event.preventDefault();
+        showContextMenu(event, userId);
+    }
+
     function renderTargetList(forceFullRender = false) {
         const targets = window.appState.getFilteredTargets();
         const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
@@ -2354,8 +2560,10 @@
         // Update welcome view with current stats
         updateWelcomeView();
         updateSelectionToolbar(selectedIds);
+        updateAttackTrackerUI(targets);
 
         if (targets.length === 0) {
+            resetTargetMetaCache();
             DOM.targetList.innerHTML = `
                 <div class="empty-list">
                     <p>No targets found</p>
@@ -2373,6 +2581,10 @@
             !renderedTargetIds.every((id, i) => id === newTargetIds[i]);
 
         if (needsFullRender) {
+            resetTargetMetaCache();
+            const listEl = DOM.targetList;
+            const prevScrollTop = listEl ? listEl.scrollTop : 0;
+
             // Full render - replace everything
             DOM.targetList.innerHTML = targets.map(target => {
                 const timeRemaining = target.getFormattedTimeRemaining();
@@ -2380,25 +2592,13 @@
                 return createTargetListItem(target, timeRemaining);
             }).join('');
 
-            // Bind events to new items
-            DOM.targetList.querySelectorAll('.target-item').forEach(item => {
-                const userId = parseInt(item.dataset.userId, 10);
-
-                item.addEventListener('click', (e) => {
-                    if (window.appState.currentView !== 'targets') {
-                        switchView('targets');
-                    }
-                    handleTargetItemClick(e, userId);
-                });
-
-                item.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
-                    showContextMenu(e, userId);
-                });
-            });
-
             renderedTargetIds = newTargetIds;
             isFullRenderNeeded = false;
+
+            if (listEl) {
+                const maxScroll = Math.max(0, listEl.scrollHeight - listEl.clientHeight);
+                listEl.scrollTop = Math.min(prevScrollTop, maxScroll);
+            }
         } else {
             // Smart update - only update individual items that changed
             targets.forEach((target, index) => {
@@ -2417,15 +2617,25 @@
         const item = DOM.targetList.querySelector(`.target-item[data-user-id="${target.userId}"]`);
         if (!item) return;
 
+        const trackerEnabled = !!window.appState.attackTracker?.enabled;
+        const isTracked = trackerEnabled && window.appState.isTargetTracked
+            ? window.appState.isTargetTracked(target.userId)
+            : false;
+        item.classList.toggle('tracked', trackerEnabled && isTracked);
+
         // Update status dot
         const statusDot = item.querySelector('.status-dot');
         if (statusDot) {
-            statusDot.className = `status-dot ${target.getStatusClass()}`;
+            const nextClass = `status-dot ${target.getStatusClass()}`;
+            if (statusDot.className !== nextClass) {
+                statusDot.className = nextClass;
+            }
         }
 
         // Update timer
         const timerValue = timeRemaining ?? target.getFormattedTimeRemaining();
         const metaEl = item.querySelector('.target-meta');
+        updateTargetMetaCache(target.userId, metaEl);
         if (metaEl) {
             const level = target.level ? `Lv.${target.level}` : '';
             const timer = timerValue ? `&#9201; ${timerValue}` : '';
@@ -2435,7 +2645,11 @@
                 : '';
             const hasBounty = window.appState.hasActiveBounty ? window.appState.hasActiveBounty(target.userId) : false;
             const bountyBadge = hasBounty ? '<span class="target-bounty-pill" title="Tracked bounty on this target">Bounty</span>' : '';
-            metaEl.innerHTML = `${level} ${timer} ${difficultyBadge} ${bountyBadge}`;
+            const metaHtml = `${level} ${timer} ${difficultyBadge} ${bountyBadge}`;
+            if (metaEl.dataset.meta !== metaHtml) {
+                metaEl.dataset.meta = metaHtml;
+                metaEl.innerHTML = metaHtml;
+            }
         }
 
         // Update flagged class
@@ -2480,6 +2694,11 @@
         const selectedClass = selectedIds.includes(target.userId) ? 'selected' : '';
         const flaggedClass = hasNoAttackFlag ? 'in-flagged-group' : '';
         const showAvatars = window.appState.settings.showAvatars !== false;
+        const trackerEnabled = window.appState.attackTracker?.enabled;
+        const isTracked = trackerEnabled && window.appState.isTargetTracked
+            ? window.appState.isTargetTracked(target.userId)
+            : false;
+        const trackedClass = isTracked ? 'tracked' : '';
         const difficulty = window.appState.getTargetDifficulty
             ? window.appState.getTargetDifficulty(target)
             : null;
@@ -2515,8 +2734,17 @@
             const timeInfo = timerValue ? ` - ${timerValue} remaining` : '';
             statusIconHtml = `<img src="assets/hospital.png" class="target-status-icon" title="Hospital${statusDesc}${timeInfo}" alt="Hospital" />`;
         } else if (isTraveling) {
-            const destination = target.statusDesc || 'Abroad';
-            statusIconHtml = `<img src="assets/travel.png" class="target-status-icon" title="Traveling to ${escapeHtml(destination)}" alt="Traveling" />`;
+            const travelRaw = (target.statusDesc || '').trim();
+            const normalized = travelRaw.toLowerCase();
+            let travelLabel = travelRaw || 'Abroad';
+            if (normalized.startsWith('traveling to ')) {
+                travelLabel = travelRaw.slice('traveling to '.length);
+            } else if (normalized.startsWith('returning to ')) {
+                travelLabel = travelRaw.slice('returning to '.length);
+            }
+            const travelPrefix = normalized.startsWith('returning to') ? 'Returning to' : 'Traveling to';
+            const timeInfo = timerValue ? ` - ${timerValue} remaining` : '';
+            statusIconHtml = `<img src="assets/travel.png" class="target-status-icon" title="${travelPrefix} ${escapeHtml(travelLabel)}${timeInfo}" alt="Traveling" />`;
         } else if (isFallen) {
             statusIconHtml = `<span class="target-status-icon target-fallen-icon" title="Fallen - Account inactive">💀</span>`;
         } else if (isAttackable) {
@@ -2537,6 +2765,7 @@
         // 4. Prevent icon - warning/protection flag
         // 5. Favorite star - user preference
         // 6. Error indicator - issues
+        // Tracker state is reflected by row styling (no pill)
         const icons = [];
 
         if (statusIconHtml) icons.push(statusIconHtml);
@@ -2552,7 +2781,7 @@
             : '';
 
         return `
-            <div class="target-item ${selectedClass} ${flaggedClass}"
+            <div class="target-item ${selectedClass} ${flaggedClass} ${trackedClass}"
                  data-user-id="${target.userId}">
                 <span class="status-dot ${statusClass}"></span>
                 ${avatarHtml}
@@ -2584,6 +2813,9 @@
     // ------------------------------------------------------------------------
 
     function notifyTargetOkay(target, reason = '') {
+        // Skip during initial scan to prevent notification spam on app launch
+        if (window.appState?.suppressNotifications) return;
+
         const now = Date.now();
         const last = recentReadyNotifications.get(target.userId) || 0;
         if (now - last < 5000) return; // throttle per target
@@ -2591,7 +2823,25 @@
         recentReadyNotifications.set(target.userId, now);
 
         const detail = reason ? ` (${reason})` : '';
-        showToast(`${target.getDisplayName()} is OK${detail}`, 'success');
+        const displayName = target.getDisplayName();
+
+        // Show system notification for watched targets
+        // Watched targets (monitorOk) ALWAYS get notifications regardless of global setting
+        if (target.monitorOk) {
+            window.electronAPI?.showNotification?.(
+                'Target Available!',
+                `${displayName} is now attackable${detail}`,
+                true // force - bypass global notification setting for watched targets
+            );
+
+            // Play notification sound if enabled
+            if (window.appState?.settings?.soundEnabled) {
+                window.appState.emit('play-notification-sound');
+            }
+        }
+
+        // Also show toast for visual feedback in the app
+        showToast(`${displayName} is OK${detail}`, 'success');
     }
 
     function shouldTrackStatusReminder(state) {
@@ -2642,7 +2892,8 @@
     function reminderTick() {
         if (reminderWatchers.size === 0) return;
 
-        const now = Date.now();
+        const offsetMs = window.appState?.api?.serverTimeOffsetMs || 0;
+        const now = Date.now() + offsetMs;
         reminderWatchers.forEach((watch, userId) => {
             const target = window.appState.getTarget(userId);
             if (!target) {
@@ -2654,9 +2905,10 @@
                 watch.notifiedZero = true;
                 reminderWatchers.set(userId, watch);
 
-                // Use existing fetch flow to confirm current status (revives, busts, natural expiry)
-                if (window.appState?.refreshTargets) {
-                    window.appState.refreshTargets([userId]);
+                // Use refreshTarget (NOT refreshTargets) to trigger notification logic
+                // refreshTarget has the notification checks; refreshTargets/doRefresh does not
+                if (window.appState?.refreshTarget) {
+                    window.appState.refreshTarget(userId);
                 }
             }
         });
@@ -2671,18 +2923,8 @@
             newItem.innerHTML = createTargetListItem(target, timeRemaining);
             const newElement = newItem.firstElementChild;
             
-            // Copy event listeners by replacing
             item.replaceWith(newElement);
-            
-            // Re-bind events
-            newElement.addEventListener('click', (e) => {
-                handleTargetItemClick(e, target.userId);
-            });
-
-            newElement.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                showContextMenu(e, target.userId);
-            });
+            updateTargetMetaCache(target.userId, newElement?.querySelector('.target-meta') || null);
         }
     }
 
@@ -2974,6 +3216,7 @@
         }
 
         const isRefreshing = refreshing && hasIntel;
+        const isManual = intel.source === 'manual';
         setStateClass('intel-ready');
         setStat(DOM.detailIntelStr, intel.stats?.strength);
         setStat(DOM.detailIntelDef, intel.stats?.defense);
@@ -2981,18 +3224,28 @@
         setStat(DOM.detailIntelDex, intel.stats?.dexterity);
         setStat(DOM.detailIntelTotal, intel.stats?.total);
 
-        const sourceText = intel.type
-            ? `Source: TornStats - ${intel.type}`
-            : 'Source: TornStats';
-        if (sourceEl) sourceEl.textContent = sourceText;
+        // Handle source display for manual vs TornStats
+        let sourceText;
+        if (isManual) {
+            sourceText = 'Source: Manual Entry';
+        } else if (intel.type) {
+            sourceText = `Source: TornStats - ${intel.type}`;
+        } else {
+            sourceText = 'Source: TornStats';
+        }
+        if (sourceEl) {
+            sourceEl.textContent = sourceText;
+            sourceEl.classList.toggle('manual', isManual);
+        }
         setStatus(isRefreshing ? 'Refreshing intel...' : 'Intel ready');
-        const message = intel.message || 'Latest battle stats from TornStats';
+        const message = intel.message || (isManual ? 'Manually entered battle stats' : 'Latest battle stats from TornStats');
         setMessage(isRefreshing ? `${message} (refreshing...)` : message);
 
         const lastSeen = intel.lastSeen || intel.fetchedAt || null;
         if (updatedEl) updatedEl.textContent = lastSeen ? formatTimestamp(lastSeen) : '-';
         if (freshnessEl) {
-            const ageText = intel.fetchedAt ? `Cached ${formatIntelAge(intel.fetchedAt)}` : '';
+            const prefix = isManual ? 'Saved' : 'Cached';
+            const ageText = intel.fetchedAt ? `${prefix} ${formatIntelAge(intel.fetchedAt)}` : '';
             freshnessEl.textContent = isRefreshing && ageText ? `${ageText} (refreshing...)` : ageText;
         }
     }
@@ -3097,44 +3350,230 @@
         return `${days}d ago`;
     }
 
+    // ========================================================================
+    // INTEL EDITING
+    // ========================================================================
+
+    let intelEditMode = false;
+    let intelEditOriginalValues = null;
+
+    /**
+     * Parse stat value from user input - supports formats like:
+     * 1500000, 1.5m, 1,500,000, 1.5M, 800k, etc.
+     */
+    function parseStatValue(input) {
+        if (!input || typeof input !== 'string') return null;
+        const cleaned = input.trim().toLowerCase().replace(/,/g, '');
+        if (!cleaned || cleaned === '-') return null;
+
+        // Handle suffixes: k (thousands), m (millions), b (billions)
+        const suffixMatch = cleaned.match(/^([\d.]+)\s*([kmb])?$/);
+        if (!suffixMatch) return null;
+
+        let value = parseFloat(suffixMatch[1]);
+        if (!Number.isFinite(value)) return null;
+
+        const suffix = suffixMatch[2];
+        if (suffix === 'k') value *= 1000;
+        else if (suffix === 'm') value *= 1000000;
+        else if (suffix === 'b') value *= 1000000000;
+
+        return Math.round(value);
+    }
+
+    /**
+     * Format stat value for input field display
+     */
+    function formatStatForInput(value) {
+        if (value === null || value === undefined) return '';
+        const num = Number(value);
+        if (!Number.isFinite(num)) return '';
+        return num.toLocaleString();
+    }
+
+    /**
+     * Enter intel edit mode
+     */
+    function enterIntelEditMode() {
+        const target = window.appState.getSelectedTarget();
+        if (!target) return;
+
+        intelEditMode = true;
+        const intel = target.intel;
+
+        // Store original values for cancel
+        intelEditOriginalValues = {
+            strength: intel?.stats?.strength ?? null,
+            defense: intel?.stats?.defense ?? null,
+            speed: intel?.stats?.speed ?? null,
+            dexterity: intel?.stats?.dexterity ?? null
+        };
+
+        // Populate inputs with current values
+        if (DOM.inputIntelStr) DOM.inputIntelStr.value = formatStatForInput(intelEditOriginalValues.strength);
+        if (DOM.inputIntelDef) DOM.inputIntelDef.value = formatStatForInput(intelEditOriginalValues.defense);
+        if (DOM.inputIntelSpd) DOM.inputIntelSpd.value = formatStatForInput(intelEditOriginalValues.speed);
+        if (DOM.inputIntelDex) DOM.inputIntelDex.value = formatStatForInput(intelEditOriginalValues.dexterity);
+
+        // Toggle UI
+        DOM.detailIntelSection?.classList.add('intel-editing');
+        if (DOM.intelActionsView) DOM.intelActionsView.style.display = 'none';
+        if (DOM.intelActionsEdit) DOM.intelActionsEdit.style.display = 'flex';
+
+        // Show inputs, hide values
+        [DOM.detailIntelStr, DOM.detailIntelDef, DOM.detailIntelSpd, DOM.detailIntelDex].forEach(el => {
+            if (el) el.style.display = 'none';
+        });
+        [DOM.inputIntelStr, DOM.inputIntelDef, DOM.inputIntelSpd, DOM.inputIntelDex].forEach(el => {
+            if (el) el.style.display = 'block';
+        });
+
+        // Show auto-calculated total indicator, hide static value
+        if (DOM.detailIntelTotal) DOM.detailIntelTotal.style.display = 'none';
+        if (DOM.intelTotalAuto) DOM.intelTotalAuto.style.display = 'block';
+
+        // Update status
+        if (DOM.detailIntelStatus) DOM.detailIntelStatus.textContent = 'Editing...';
+        if (DOM.detailIntelMessage) DOM.detailIntelMessage.textContent = 'Enter stat values manually. Use formats like 1.5m, 800k, or raw numbers.';
+
+        // Update total preview
+        updateIntelTotalPreview();
+
+        // Focus first input
+        DOM.inputIntelStr?.focus();
+    }
+
+    /**
+     * Update total preview while editing
+     */
+    function updateIntelTotalPreview() {
+        const str = parseStatValue(DOM.inputIntelStr?.value) || 0;
+        const def = parseStatValue(DOM.inputIntelDef?.value) || 0;
+        const spd = parseStatValue(DOM.inputIntelSpd?.value) || 0;
+        const dex = parseStatValue(DOM.inputIntelDex?.value) || 0;
+        const total = str + def + spd + dex;
+
+        if (DOM.intelTotalAuto) {
+            DOM.intelTotalAuto.textContent = total > 0 ? `Total: ${formatNumber(total)}` : 'Auto-calculated';
+        }
+    }
+
+    /**
+     * Save intel edits
+     */
+    async function saveIntelEdits() {
+        const target = window.appState.getSelectedTarget();
+        if (!target) {
+            cancelIntelEdits();
+            return;
+        }
+
+        const strength = parseStatValue(DOM.inputIntelStr?.value);
+        const defense = parseStatValue(DOM.inputIntelDef?.value);
+        const speed = parseStatValue(DOM.inputIntelSpd?.value);
+        const dexterity = parseStatValue(DOM.inputIntelDex?.value);
+
+        // Calculate total
+        const total = (strength || 0) + (defense || 0) + (speed || 0) + (dexterity || 0);
+
+        // Create or update intel payload
+        const now = Date.now();
+        const newIntel = {
+            source: 'manual',
+            status: true,
+            message: 'Manually entered battle stats',
+            stats: {
+                strength: strength,
+                defense: defense,
+                speed: speed,
+                dexterity: dexterity,
+                total: total > 0 ? total : null
+            },
+            fetchedAt: now,
+            lastSeen: now,
+            type: 'Manual Entry'
+        };
+
+        // Update target
+        target.intel = newIntel;
+        target.difficulty = window.appState.getTargetDifficulty(target);
+
+        try {
+            await window.appState.updateTarget(target.userId, { intel: newIntel });
+        } catch (error) {
+            console.error('Failed to save intel:', error);
+        }
+
+        // Exit edit mode and re-render
+        exitIntelEditMode();
+        renderTargetIntel(target);
+
+        // Show success feedback
+        if (DOM.detailIntelStatus) {
+            DOM.detailIntelStatus.textContent = 'Saved!';
+            setTimeout(() => {
+                const currentTarget = window.appState.getSelectedTarget();
+                if (currentTarget && DOM.detailIntelStatus) {
+                    DOM.detailIntelStatus.textContent = currentTarget.intel?.status ? 'Intel ready' : 'No intel';
+                }
+            }, 1500);
+        }
+    }
+
+    /**
+     * Cancel intel edits
+     */
+    function cancelIntelEdits() {
+        exitIntelEditMode();
+
+        // Re-render with original data
+        const target = window.appState.getSelectedTarget();
+        if (target) {
+            renderTargetIntel(target);
+        }
+    }
+
+    /**
+     * Exit intel edit mode (shared by save and cancel)
+     */
+    function exitIntelEditMode() {
+        intelEditMode = false;
+        intelEditOriginalValues = null;
+
+        // Toggle UI
+        DOM.detailIntelSection?.classList.remove('intel-editing');
+        if (DOM.intelActionsView) DOM.intelActionsView.style.display = 'flex';
+        if (DOM.intelActionsEdit) DOM.intelActionsEdit.style.display = 'none';
+
+        // Show values, hide inputs
+        [DOM.detailIntelStr, DOM.detailIntelDef, DOM.detailIntelSpd, DOM.detailIntelDex, DOM.detailIntelTotal].forEach(el => {
+            if (el) el.style.display = 'block';
+        });
+        [DOM.inputIntelStr, DOM.inputIntelDef, DOM.inputIntelSpd, DOM.inputIntelDex].forEach(el => {
+            if (el) el.style.display = 'none';
+        });
+
+        // Hide auto-calculated indicator
+        if (DOM.intelTotalAuto) DOM.intelTotalAuto.style.display = 'none';
+    }
+
     function updateDetailTimer(target) {
         if (!target) return;
 
         // Get NUMERIC time remaining to properly detect when timer expires
         const timeRemainingSeconds = target.getTimeRemaining();
         const formattedTime = target.getFormattedTimeRemaining();
+        const statusInfo = computeStatusText(target, formattedTime, timeRemainingSeconds);
 
         // Always update status chip to show live countdown
-        updateStatusChip(target);
+        updateStatusChip(target, statusInfo);
 
         // Check if timer has expired (0 or less)
         if (timeRemainingSeconds !== null && timeRemainingSeconds <= 0) {
-            DOM.detailTimer.style.display = 'none';
-
-            // Timer reached zero - mark target as okay locally if they were in hospital/jail
-            if (target.isInHospital() || target.isInJail() || target.isInFederal()) {
-                const wasMonitored = target.monitorOk; // Store before updating
-
-                target.statusState = 'Okay';
-                target.statusDesc = 'Okay';
-                target.statusUntil = null;
-                target.ok = true;
-
-                // Update the target in state and save
-                window.appState.targets.set(target.userId, target);
-                window.appState.saveTargets();
-
-                // Trigger notification if "Notify when OK" was enabled
-                if (wasMonitored) {
-                    showToast(`${target.getDisplayName()} is now OK and attackable!`, 'success');
-                }
-
-                // Update the UI to reflect the change
-                window.appState.emit('target-updated', target);
-
-                // Force full re-render of detail view
-                renderTargetDetail(target);
-            }
+            DOM.detailTimer.textContent = '0s';
+            DOM.detailTimer.style.display = 'inline';
+            // Ask for a live recheck so hospital/jail transitions update promptly
+            requestStatusRecheck(target.userId);
         } else if (formattedTime) {
             // Timer still running - show countdown
             DOM.detailTimer.textContent = formattedTime;
@@ -3145,35 +3584,46 @@
         }
     }
 
-    function updateStatusChip(target) {
-        if (!DOM.detailStatusChip) return;
-
-        // Get time remaining for countdown statuses
-        const timeRemainingSeconds = target.getTimeRemaining();
-        const formattedTime = target.getFormattedTimeRemaining();
-
+    function computeStatusText(target, formattedTime = null, timeRemainingSeconds = null) {
+        const timeRemaining = timeRemainingSeconds ?? target.getTimeRemaining();
+        const formatted = formattedTime ?? target.getFormattedTimeRemaining();
         let statusText = target.statusDesc || target.statusState || 'Unknown';
 
-        // If target has a countdown timer, update the status text with live countdown
-        if (timeRemainingSeconds !== null && timeRemainingSeconds > 0 && formattedTime) {
+        if (timeRemaining !== null && timeRemaining > 0 && formatted) {
             const status = target.statusState || '';
             const statusLower = status.toLowerCase();
 
             if (statusLower === 'hospital') {
-                statusText = `In hospital for ${formattedTime}`;
+                statusText = `In hospital for ${formatted}`;
             } else if (statusLower === 'jail' || statusLower === 'jailed') {
-                statusText = `In jail for ${formattedTime}`;
+                statusText = `In jail for ${formatted}`;
             } else if (statusLower === 'federal') {
-                statusText = `In federal for ${formattedTime}`;
+                statusText = `In federal for ${formatted}`;
             }
         }
 
-        DOM.detailStatusChip.textContent = statusText;
-        DOM.detailStatusChip.className = `chip chip-status-chip ${target.getStatusClass()}`;
+        return {
+            text: statusText,
+            className: `chip chip-status-chip ${target.getStatusClass()}`
+        };
+    }
+
+    function updateStatusChip(target, statusInfo = null) {
+        if (!DOM.detailStatusChip) return;
+        const info = statusInfo || computeStatusText(target);
+
+        // Avoid redundant DOM churn that can cause flicker
+        const last = statusRenderCache.get(target.userId);
+        const nextKey = `${info.text}::${info.className}`;
+        if (last === nextKey) return;
+        statusRenderCache.set(target.userId, nextKey);
+
+        DOM.detailStatusChip.textContent = info.text;
+        DOM.detailStatusChip.className = info.className;
 
         // Also update the STATUS row in the detail grid with live countdown
         if (DOM.detailStatusDesc) {
-            DOM.detailStatusDesc.textContent = statusText;
+            DOM.detailStatusDesc.textContent = info.text;
         }
     }
 
@@ -3269,8 +3719,8 @@
 
             for (const userId of Array.from(activeCountdownTargets)) {
                 const t = window.appState.getTarget(userId);
-                const item = DOM.targetList.querySelector(`[data-user-id="${userId}"] .target-meta`);
-                if (!t || !item) {
+                const metaEl = getTargetMetaElement(userId);
+                if (!t || !metaEl) {
                     activeCountdownTargets.delete(userId);
                     continue;
                 }
@@ -3282,38 +3732,14 @@
 
                 // Check if timer has expired (0 or less)
                 if (timeRemainingSeconds !== null && timeRemainingSeconds <= 0) {
-                    // Timer reached zero - mark target as okay locally
-                    // This will be corrected on next refresh if status has changed
-                    if (t.isInHospital() || t.isInJail() || t.isInFederal()) {
-                        const wasMonitored = t.monitorOk; // Store before updating
-
-                        t.statusState = 'Okay';
-                        t.statusDesc = 'Okay';
-                        t.statusUntil = null;
-                        t.ok = true;
-
-                        // Update the target in state and save
-                        window.appState.targets.set(userId, t);
-                        window.appState.saveTargets();
-
-                        // Trigger notification if "Notify when OK" was enabled
-                        if (wasMonitored) {
-                            showToast(`${t.getDisplayName()} is now OK and attackable!`, 'success');
-                        }
-
-                        // Update the UI to reflect the change
-                        window.appState.emit('target-updated', t);
-                        updateTargetInList(t);
-                    }
-
-                    item.textContent = level;
-                    activeCountdownTargets.delete(userId);
+                    metaEl.textContent = [level, '0s'].filter(Boolean).join(' • ');
+                    requestStatusRecheck(userId);
                 } else if (formattedTime) {
                     // Timer still running - display countdown
-                    item.textContent = [level, formattedTime].filter(Boolean).join(' • ');
+                    metaEl.textContent = [level, formattedTime].filter(Boolean).join(' • ');
                 } else {
                     // No countdown
-                    item.textContent = level;
+                    metaEl.textContent = level;
                     activeCountdownTargets.delete(userId);
                 }
             }
@@ -3441,15 +3867,23 @@
     // STATUS BAR
     // ========================================================================
 
+    function hideRefreshStatusUI() {
+        if (DOM.statusNextRefresh) {
+            DOM.statusNextRefresh.style.display = 'none';
+        }
+        if (DOM.statusRefresh) {
+            DOM.statusRefresh.style.display = 'none';
+        }
+    }
+
     function updateStatusBar() {
         const stats = window.appState.getStatistics();
         
+        hideRefreshStatusUI();
         DOM.attackableText.textContent = `${stats.attackableTargets} attackable`;
         DOM.targetsText.textContent = `${stats.totalTargets} targets`;
         updateRateText(stats.rateLimitStatus);
-        updateNextRefreshStatus(stats);
         updateConnectionStatus(window.appState.isOnline);
-        updateSmartStatusCountdowns(true);
         renderHelpCenter();
     }
 
@@ -3477,59 +3911,24 @@
     }
 
     function updateNextRefreshStatus(stats) {
-        if (!DOM.statusNextRefreshText) return;
+        smartStatusState.nextRefreshAt = null;
+        smartStatusState.refreshIntervalMs = null;
+        smartStatusState.autoRefreshEnabled = false;
+        smartStatusState.lastRefreshAt = window.appState.lastRefresh || stats?.lastRefresh || null;
 
-        const settings = window.appState.settings || {};
-        const autoEnabled = !!(settings.autoRefresh && settings.apiKey);
-        const intervalMs = Math.max(10, settings.refreshInterval || stats.refreshInterval || 30) * 1000;
-        const lastRefresh = window.appState.lastRefresh || stats.lastRefresh || null;
-        let tone = autoEnabled ? 'good' : 'warn';
-        let nextAt = null;
-        let text = 'Auto off';
+        hideRefreshStatusUI();
+        if (!DOM.statusNextRefreshText || !DOM.statusNextRefresh) return;
 
-        if (window.appState.isRefreshing) {
-            text = 'Refreshing now...';
-            tone = 'good';
-            nextAt = Date.now() + intervalMs;
-        } else if (!autoEnabled) {
-            text = 'Auto off';
-        } else if (!lastRefresh) {
-            text = 'Waiting for first run';
-            nextAt = Date.now() + intervalMs;
-            tone = 'warn';
-        } else {
-            nextAt = lastRefresh + intervalMs;
-            const remaining = Math.max(0, nextAt - Date.now());
-            text = `Next in ${formatSmartCountdown(remaining)}`;
-            tone = remaining < 15000 ? 'warn' : 'good';
-        }
-
-        smartStatusState.nextRefreshAt = nextAt;
-        smartStatusState.refreshIntervalMs = intervalMs;
-        smartStatusState.autoRefreshEnabled = autoEnabled;
-        smartStatusState.lastRefreshAt = lastRefresh;
-
-        DOM.statusNextRefreshText.textContent = text;
+        DOM.statusNextRefreshText.textContent = 'On-demand when switching targets';
         if (DOM.statusRefreshMode) {
-            DOM.statusRefreshMode.textContent = autoEnabled ? 'Auto' : 'Manual';
+            DOM.statusRefreshMode.textContent = 'Manual';
             DOM.statusRefreshMode.classList.remove('good', 'warn', 'bad');
-            DOM.statusRefreshMode.classList.add(autoEnabled ? 'good' : 'warn');
         }
-        setStatusTone(DOM.statusNextRefresh, tone);
+        DOM.statusNextRefresh.style.display = 'none';
     }
 
-    function updateSmartStatusCountdowns(force = false) {
-        if (DOM.statusNextRefreshText && smartStatusState.nextRefreshAt && smartStatusState.autoRefreshEnabled && !window.appState.isRefreshing) {
-            const remaining = smartStatusState.nextRefreshAt - Date.now();
-            DOM.statusNextRefreshText.textContent = `Next in ${formatSmartCountdown(remaining)}`;
-            if (remaining <= 10000) {
-                setStatusTone(DOM.statusNextRefresh, 'bad');
-            } else if (remaining <= 30000) {
-                setStatusTone(DOM.statusNextRefresh, 'warn');
-            } else if (force) {
-                setStatusTone(DOM.statusNextRefresh, 'good');
-            }
-        }
+    function updateSmartStatusCountdowns() {
+        // Auto-refresh countdown removed; no periodic status updates required.
     }
 
     // ========================================================================
@@ -3539,8 +3938,6 @@
     function buildCommandList() {
         const state = window.appState || {};
         const settings = state.settings || {};
-        const autoOn = !!settings.autoRefresh;
-        const refreshInterval = settings.refreshInterval || 30;
         const selected = state.getSelectedTarget ? state.getSelectedTarget() : null;
         const hasTargets = (state.getTargets?.() || []).length > 0;
 
@@ -3548,7 +3945,6 @@
             { id: 'add-target', label: 'Add Target', detail: 'Open add target dialog', shortcut: 'Ctrl+N', action: () => openModal('modal-add-target') },
             { id: 'bulk-add', label: 'Bulk Import Targets', detail: 'Paste IDs or URLs', shortcut: 'Ctrl+Shift+B', action: () => openModal('modal-bulk-add') },
             { id: 'refresh-all', label: 'Refresh All Targets', detail: 'Force live status update', shortcut: 'Ctrl+R', enabled: () => hasTargets, action: () => window.appState.refreshAllTargets() },
-            { id: 'toggle-auto-refresh', label: autoOn ? 'Disable Auto Refresh' : 'Enable Auto Refresh', detail: `${autoOn ? 'Running' : 'Currently off'} • ${refreshInterval}s interval`, action: () => window.appState.updateSettings({ autoRefresh: !autoOn }) },
             { id: 'open-settings', label: 'Open Settings', detail: 'Tune preferences', shortcut: 'Ctrl+,', action: () => switchView('settings') },
             { id: 'view-targets', label: 'View Targets', detail: 'Main list', shortcut: 'Ctrl+1', action: () => switchView('targets') },
             { id: 'view-history', label: 'View History', detail: 'Recent attacks', shortcut: 'Ctrl+2', action: () => switchView('history') },
@@ -3706,9 +4102,12 @@
 
         const max = status.maxTokens || 100;
         const penalty = status.penaltyRemaining || 0;
+        const cooldownRemaining = status.cooldownRemaining || 0;
         const recentRequests = status.recentRequests || 0;
         const utilization = status.utilizationPercent || 0;
         const availableTokens = status.availableTokens || 0;
+        const timeUntilNextToken = status.timeUntilNextToken || 0;
+        const windowMs = status.windowMs || (status.maxTokens && status.refillRate ? Math.round((status.maxTokens / status.refillRate) * 1000) : 60000);
 
         // Calculate remaining in 60-second window
         const remainingInWindow = Math.max(0, max - recentRequests);
@@ -3725,7 +4124,7 @@
         // Add penalty warning if active
         if (penalty > 0) {
             const waitSeconds = Math.ceil(penalty / 1000);
-            text += ` (⏸ ${waitSeconds}s)`;
+            text += ` (|| ${waitSeconds}s)`;
         }
         // Add utilization indicator when high
         else if (utilization > 80) {
@@ -3762,19 +4161,71 @@
         if (DOM.ratePopoverUtilization) {
             DOM.ratePopoverUtilization.textContent = `${utilization}%`;
         }
-        if (DOM.ratePopoverPenaltyRow && DOM.ratePopoverPenalty) {
-            if (penalty > 0) {
-                DOM.ratePopoverPenaltyRow.style.display = '';
-                DOM.ratePopoverPenalty.textContent = `${Math.ceil(penalty / 1000)}s`;
+        const longestPenalty = Math.max(penalty, cooldownRemaining);
+        if (DOM.ratePopoverPenaltyCard && DOM.ratePopoverPenalty) {
+            if (longestPenalty > 0) {
+                DOM.ratePopoverPenaltyCard.style.opacity = '';
+                DOM.ratePopoverPenalty.textContent = formatDuration(longestPenalty);
             } else {
-                DOM.ratePopoverPenaltyRow.style.display = 'none';
+                DOM.ratePopoverPenaltyCard.style.opacity = 0.7;
+                DOM.ratePopoverPenalty.textContent = 'None';
             }
         }
-        if (DOM.ratePopoverSuccess && status.stats) {
-            DOM.ratePopoverSuccess.textContent = (status.stats.successfulRequests || 0).toString();
+        const stats = status.stats || {};
+        const successCount = stats.successfulRequests || 0;
+        const failedCount = stats.failedRequests || 0;
+        const totalTracked = successCount + failedCount;
+        const successPct = totalTracked > 0 ? Math.round((successCount / totalTracked) * 100) : 0;
+        const failedPct = totalTracked > 0 ? Math.max(0, 100 - successPct) : 0;
+
+        if (DOM.ratePopoverSuccess) {
+            DOM.ratePopoverSuccess.textContent = successCount.toString();
         }
-        if (DOM.ratePopoverFailed && status.stats) {
-            DOM.ratePopoverFailed.textContent = (status.stats.failedRequests || 0).toString();
+        if (DOM.ratePopoverFailed) {
+            DOM.ratePopoverFailed.textContent = failedCount.toString();
+        }
+        if (DOM.ratePopoverSuccessPercent) {
+            DOM.ratePopoverSuccessPercent.textContent = `${successPct}%`;
+        }
+        if (DOM.ratePopoverFailedPercent) {
+            DOM.ratePopoverFailedPercent.textContent = `${failedPct}%`;
+        }
+        if (DOM.ratePopoverSuccessBar) {
+            DOM.ratePopoverSuccessBar.style.width = `${successPct}%`;
+        }
+        if (DOM.ratePopoverFailedBar) {
+            DOM.ratePopoverFailedBar.style.width = `${failedPct}%`;
+        }
+        if (DOM.ratePopoverNextToken) {
+            DOM.ratePopoverNextToken.textContent = timeUntilNextToken > 0 ? formatDuration(timeUntilNextToken) : 'Ready';
+        }
+        if (DOM.ratePopoverWindow) {
+            const secs = Math.round(windowMs / 1000);
+            DOM.ratePopoverWindow.textContent = `Rolling ${secs}s window · burst protected`;
+        }
+        if (DOM.rateMeterFill) {
+            const percent = Math.max(0, Math.min(100, (actuallyAvailable / max) * 100));
+            DOM.rateMeterFill.style.width = `${percent}%`;
+        }
+        if (DOM.rateMeterAvailable) {
+            DOM.rateMeterAvailable.textContent = `${actuallyAvailable}`;
+        }
+        if (DOM.rateMeterMax) {
+            DOM.rateMeterMax.textContent = `${max}`;
+        }
+        if (DOM.rateChipState) {
+            const chipEl = DOM.rateChipState;
+            chipEl.className = 'rate-chip';
+            if (longestPenalty > 0) {
+                chipEl.textContent = 'Cooldown';
+                chipEl.classList.add('cooldown');
+            } else if (utilization > 80 || remainingInWindow < max * 0.2) {
+                chipEl.textContent = 'High Load';
+                chipEl.classList.add('warn');
+            } else {
+                chipEl.textContent = 'Stable';
+                chipEl.classList.add('ok');
+            }
         }
     }
 
@@ -3903,7 +4354,10 @@
             return `
                 ${dayHeader}
                 <div class="history-item premium" data-user-id="${record.userId}">
-                    <div class="history-timeline-dot ${statusClass}"></div>
+                    <div class="history-timeline">
+                        <span class="history-timeline-dot ${statusClass}"></span>
+                        <span class="history-time" title="${absoluteTime}">${formatTimestamp(record.timestamp)}</span>
+                    </div>
                     <div class="history-info">
                         <div class="history-row">
                             <div class="history-title">
@@ -3913,18 +4367,20 @@
                             </div>
                             <div class="history-meta">
                                 <span class="history-status ${statusClass}">${escapeHtml(statusLabel)}</span>
-                                <span class="history-time" title="${absoluteTime}">${formatTimestamp(record.timestamp)}</span>
+                                <span class="history-chip subtle">${escapeHtml(sourceLabel)}</span>
                             </div>
                         </div>
                         <div class="history-row secondary">
                             <span class="history-meta-item">${escapeHtml(levelLabel)}</span>
                             <span class="history-meta-item">Status: ${escapeHtml(statusDesc)}</span>
-                            <span class="history-meta-item">${escapeHtml(sourceLabel)}</span>
+                            <span class="history-meta-item">Day: ${escapeHtml(dayLabel)}</span>
                         </div>
                     </div>
-                    <button class="history-action" data-user-id="${record.userId}" title="Attack again">
-                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-                    </button>
+                    <div class="history-actions">
+                        <button class="history-action" data-user-id="${record.userId}" title="Attack again">
+                            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                        </button>
+                    </div>
                 </div>
             `;
         }).join('');
@@ -3980,43 +4436,93 @@
             'all': 'All visible'
         };
         const rangeLabel = rangeLabelMap[historyFilters.range] || 'Filtered';
+        const chipLabel = rangeLabel.toLowerCase();
         const uniqueTargets = new Set(filtered.map(r => r.userId)).size;
         const streak = calculateAttackStreak(fullHistory);
         const top = getTopTarget(filtered);
+        const iconAttack = '<div class="history-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7 7m0 0-7 7m7-7 4 4 4-4-4-4-4 4z"/></svg></div>';
+        const iconUnique = '<div class="history-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg></div>';
+        const iconStreak = '<div class="history-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div>';
+        const iconTop = '<div class="history-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.09 6.26L20 9l-4.91 3.58L16.18 19 12 15.9 7.82 19l1.09-6.42L4 9l5.91-.74L12 2z"/></svg></div>';
 
         if (DOM.historyStatTotal) {
             DOM.historyStatTotal.innerHTML = `
-                <div class="history-stat-label">Attacks</div>
-                <div class="history-stat-value">${formatNumber(filtered.length)}</div>
-                <div class="history-stat-meta">${rangeLabel}</div>
+                <div class="history-stat-head">
+                    <span class="history-stat-kicker">Volume</span>
+                    <span class="history-stat-chip">${escapeHtml(rangeLabel)}</span>
+                </div>
+                <div class="history-stat-body">
+                    ${iconAttack}
+                    <div>
+                        <div class="history-stat-value">${formatNumber(filtered.length)}</div>
+                        <div class="history-stat-label">Attacks</div>
+                        <div class="history-stat-meta">in ${escapeHtml(chipLabel)}</div>
+                    </div>
+                </div>
             `;
         }
 
         if (DOM.historyStatUnique) {
             DOM.historyStatUnique.innerHTML = `
-                <div class="history-stat-label">Unique Targets</div>
-                <div class="history-stat-value">${formatNumber(uniqueTargets)}</div>
-                <div class="history-stat-meta">in ${rangeLabel.toLowerCase()}</div>
+                <div class="history-stat-head">
+                    <span class="history-stat-kicker">Coverage</span>
+                    <span class="history-stat-chip">Unique</span>
+                </div>
+                <div class="history-stat-body">
+                    ${iconUnique}
+                    <div>
+                        <div class="history-stat-value">${formatNumber(uniqueTargets)}</div>
+                        <div class="history-stat-label">Unique Targets</div>
+                        <div class="history-stat-meta">in ${escapeHtml(chipLabel)}</div>
+                    </div>
+                </div>
             `;
         }
 
         if (DOM.historyStatStreak) {
             DOM.historyStatStreak.innerHTML = `
-                <div class="history-stat-label">Day Streak</div>
-                <div class="history-stat-value">${formatNumber(streak)}d</div>
-                <div class="history-stat-meta">consecutive days with attacks</div>
+                <div class="history-stat-head">
+                    <span class="history-stat-kicker">Consistency</span>
+                    <span class="history-stat-chip">Daily</span>
+                </div>
+                <div class="history-stat-body">
+                    ${iconStreak}
+                    <div>
+                        <div class="history-stat-value">${formatNumber(streak)}d</div>
+                        <div class="history-stat-label">Day Streak</div>
+                        <div class="history-stat-meta">consecutive days with attacks</div>
+                    </div>
+                </div>
             `;
         }
 
         if (DOM.historyStatTop) {
             DOM.historyStatTop.innerHTML = top ? `
-                <div class="history-stat-label">Top Target</div>
-                <div class="history-stat-value">${escapeHtml(top.name)}</div>
-                <div class="history-stat-meta">${formatNumber(top.count)} attack${top.count === 1 ? '' : 's'}${top.group ? ` • ${escapeHtml(top.group)}` : ''}</div>
+                <div class="history-stat-head">
+                    <span class="history-stat-kicker">Standout</span>
+                    <span class="history-stat-chip">Most hit</span>
+                </div>
+                <div class="history-stat-body">
+                    ${iconTop}
+                    <div>
+                        <div class="history-stat-value">${escapeHtml(top.name)}</div>
+                        <div class="history-stat-label">Top Target</div>
+                        <div class="history-stat-meta">${formatNumber(top.count)} attack${top.count === 1 ? '' : 's'}${top.group ? ` &bull; ${escapeHtml(top.group)}` : ''}</div>
+                    </div>
+                </div>
             ` : `
-                <div class="history-stat-label">Top Target</div>
-                <div class="history-stat-value">None</div>
-                <div class="history-stat-meta">No data yet</div>
+                <div class="history-stat-head">
+                    <span class="history-stat-kicker">Standout</span>
+                    <span class="history-stat-chip">Most hit</span>
+                </div>
+                <div class="history-stat-body">
+                    ${iconTop}
+                    <div>
+                        <div class="history-stat-value">None</div>
+                        <div class="history-stat-label">Top Target</div>
+                        <div class="history-stat-meta">No data yet</div>
+                    </div>
+                </div>
             `;
         }
     }
@@ -4149,12 +4655,16 @@
         const listEl = DOM.bountyList;
         if (!listEl) return;
 
+        if (window.appState?.tidyBounties) {
+            window.appState.tidyBounties({ persist: false }).catch(() => {});
+        }
+
         const watchlist = window.appState.getBountyWatchlist
             ? window.appState.getBountyWatchlist({ includeExpired: true, includeClaimed: true })
             : [];
 
         if (DOM.bountyEmptyState) {
-            DOM.bountyEmptyState.style.display = watchlist.length === 0 ? 'flex' : 'none';
+            DOM.bountyEmptyState.style.display = watchlist.length === 0 ? '' : 'none';
         }
 
         if (watchlist.length === 0) {
@@ -4166,10 +4676,43 @@
         bountyRenderTick = Date.now();
     }
 
+    /**
+     * Update only the bounty items associated with a specific target.
+     * This prevents full re-renders that cause hover flickering.
+     */
+    function updateBountyItemsForTarget(targetId) {
+        const listEl = DOM.bountyList;
+        if (!listEl) return;
+
+        const watchlist = window.appState.getBountyWatchlist
+            ? window.appState.getBountyWatchlist({ includeExpired: true, includeClaimed: true })
+            : [];
+
+        // Find bounty entries that reference this target
+        const relevantEntries = watchlist.filter(entry => entry.targetId === targetId);
+        if (relevantEntries.length === 0) return;
+
+        for (const entry of relevantEntries) {
+            const existingItem = listEl.querySelector(`[data-bounty-id="${entry.id}"]`);
+            if (existingItem) {
+                const newHtml = renderBountyItem(entry);
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = newHtml;
+                const newElement = tempDiv.firstElementChild;
+                if (newElement) {
+                    existingItem.replaceWith(newElement);
+                }
+            }
+        }
+    }
+
     function renderBountyItem(entry) {
+        const now = Date.now();
         const target = entry.targetId ? window.appState.getTarget(entry.targetId) : null;
         const statusClass = target ? target.getStatusClass() : 'status-unknown';
-        const statusLabel = target ? (target.statusState || 'Unknown') : (entry.isExpired ? 'Expired' : 'Untracked');
+        const statusLabel = target
+            ? (target.statusState || 'Unknown')
+            : (entry.isExpired ? 'Expired' : 'Untracked');
         const isOkay = target && target.statusState === 'Okay';
         const difficulty = target && window.appState.getTargetDifficulty
             ? window.appState.getTargetDifficulty(target)
@@ -4182,12 +4725,21 @@
         if (entry.isExpired) classes.push('expired');
         if (entry.claimedAt) classes.push('claimed');
         if (isOkay && !entry.claimedAt && !entry.isExpired) classes.push('attackable');
+        const isExpiringSoon = !entry.isExpired && !entry.claimedAt && entry.expiresAt && (entry.expiresAt - now) < 24 * 60 * 60 * 1000;
+        if (isExpiringSoon) classes.push('soon');
 
         const targetIdLabel = entry.targetId ? `<span class="bounty-target-id">#${entry.targetId}</span>` : '';
         const difficultyChip = difficulty ? `<span class="bounty-chip difficulty ${difficulty.className || ''}">${escapeHtml(difficulty.label || '')}</span>` : '';
         const targetChip = target
             ? `<span class="bounty-chip status ${statusClass}">${escapeHtml(statusLabel)}</span>`
             : `<span class="bounty-chip muted">${escapeHtml(statusLabel)}</span>`;
+        const expiryChip = isExpiringSoon
+            ? `<span class="bounty-chip warning">Expiring soon</span>`
+            : '';
+
+        // API data chips (from persisted bounty data)
+        const levelChip = entry.level ? `<span class="bounty-chip level">Lv.${entry.level}</span>` : '';
+        const factionChip = entry.faction ? `<span class="bounty-chip faction" title="${escapeHtml(entry.faction)}">${escapeHtml(entry.faction.length > 20 ? entry.faction.slice(0, 18) + '...' : entry.faction)}</span>` : '';
 
         // Show attack button prominently if target is Okay
         const attackBtn = entry.targetId && !entry.claimedAt && !entry.isExpired
@@ -4203,12 +4755,15 @@
                     <div class="bounty-title">
                         <span class="bounty-target-name">${escapeHtml(entry.targetName || 'Unknown target')}</span>
                         ${targetIdLabel}
+                        ${levelChip}
                         ${targetChip}
                         ${difficultyChip}
+                        ${expiryChip}
                     </div>
                     <div class="bounty-reward">${escapeHtml(rewardLabel)}</div>
                 </div>
                 <div class="bounty-item-body">
+                    ${factionChip ? `<div class="bounty-faction-row">${factionChip}</div>` : ''}
                     <div class="bounty-meta">
                         <span class="bounty-meta-item">
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg>
@@ -4218,6 +4773,10 @@
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
                             Added ${escapeHtml(addedLabel)}
                         </span>
+                        ${entry.lastActionRelative ? `<span class="bounty-meta-item" title="Last seen activity">
+                            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                            ${escapeHtml(entry.lastActionRelative)}
+                        </span>` : ''}
                         ${claimedLabel ? `<span class="bounty-meta-item bounty-claimed-badge">
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
                             Claimed ${escapeHtml(claimedLabel)}
@@ -4347,12 +4906,15 @@
                     const watchlist = window.appState.getBountyWatchlist ? window.appState.getBountyWatchlist() : [];
                     const entry = watchlist.find(b => b.id === entryId);
                     if (entry && entry.targetName) {
-                        // Add to target list
-                        await window.appState.addTargetByName(entry.targetName);
-                        showToast(`Added ${entry.targetName} to target list`, 'success');
+                        const targetLabel = entry.targetId ? String(entry.targetId) : entry.targetName;
+                        const addedTarget = await window.appState.addTargetByName(targetLabel, {
+                            customName: entry.targetName || undefined
+                        });
+                        if (addedTarget?.userId && window.appState.attachTargetToBounty) {
+                            await window.appState.attachTargetToBounty(entry.id, addedTarget.userId, addedTarget.getDisplayName?.() || entry.targetName);
+                        }
+                        showToast(`Added ${entry.targetName || targetLabel} to target list`, 'success');
                         renderBountyWatchlist();
-                        invalidateTargetListRender();
-                        renderTargetList(true);
                     }
                     break;
                 }
@@ -4559,8 +5121,8 @@
                 icon: '<path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>',
                 label: 'Last Refresh',
                 value: stats.lastRefresh ? formatTimestamp(stats.lastRefresh) : 'Never',
-                meta: stats.autoRefresh ? `Auto every ${formatNumber(stats.refreshInterval)}s` : 'Manual refresh only',
-                variant: stats.autoRefresh ? 'refresh-auto' : 'refresh'
+                meta: 'Updates when you switch targets',
+                variant: 'refresh'
             },
             {
                 id: 'targets-added',
@@ -5864,8 +6426,18 @@
         }
 
         // Refresh Settings
-        document.getElementById('setting-auto-refresh').checked = settings.autoRefresh;
-        document.getElementById('setting-refresh-interval').value = settings.refreshInterval;
+        const autoRefreshToggle = document.getElementById('setting-auto-refresh');
+        if (autoRefreshToggle) {
+            autoRefreshToggle.checked = !!settings.autoRefresh;
+            autoRefreshToggle.disabled = false;
+            autoRefreshToggle.title = 'Automatically refresh stale targets in the background';
+        }
+        const refreshIntervalInput = document.getElementById('setting-refresh-interval');
+        if (refreshIntervalInput) {
+            refreshIntervalInput.value = settings.refreshInterval;
+            refreshIntervalInput.disabled = false;
+            refreshIntervalInput.title = 'Targets older than this will be refreshed';
+        }
         document.getElementById('setting-concurrent').value = settings.maxConcurrentRequests;
         document.getElementById('setting-api-rate-limit').value = settings.apiRateLimitPerMinute || window.appState.limiter?.maxTokens || 80;
 
@@ -5938,6 +6510,7 @@
         // Apply theme and list density
         applyTheme(settings.theme || 'dark');
         applyListDensity(settings.listDensity || 'comfortable');
+        updateAttackTrackerUI();
 
         // Set TornStats API key
         if (window.tornStatsAPI && settings.tornStatsApiKey) {
@@ -6163,15 +6736,22 @@
 
     function handleRemoveTarget() {
         const target = window.appState.getSelectedTarget();
-        if (target) {
+        if (!target) return;
+
+        const doRemove = async () => {
+            await window.appState.removeTarget(target.userId);
+            showToast('Target removed', 'success');
+        };
+
+        // Check if confirmation is required
+        if (window.appState.settings.confirmBeforeDelete !== false) {
             showConfirm(
                 'Remove Target',
                 `Remove ${target.getDisplayName()} from your list?`,
-                async () => {
-                    await window.appState.removeTarget(target.userId);
-                    showToast('Target removed', 'success');
-                }
+                doRemove
             );
+        } else {
+            doRemove();
         }
     }
 
@@ -7338,7 +7918,7 @@
 
         if (DOM.aboutTargetsCount) DOM.aboutTargetsCount.textContent = formatNumber(targets.length);
         if (DOM.aboutAttackableCount) DOM.aboutAttackableCount.textContent = formatNumber(attackable);
-        if (DOM.aboutRefreshInterval) DOM.aboutRefreshInterval.textContent = window.appState.settings.refreshInterval || '-';
+        if (DOM.aboutRefreshInterval) DOM.aboutRefreshInterval.textContent = 'On selection change';
 
         // Color-coded API status
         if (DOM.aboutApiStatus) {
@@ -7824,24 +8404,11 @@
                     clearInterval(timerInterval);
                     timerElement.style.display = 'none';
 
-                    // Timer reached zero - mark target as okay locally
-                    if (target.isInHospital?.() || target.isInJail?.() || target.isInFederal?.()) {
-                        target.statusState = 'Okay';
-                        target.statusDesc = 'Okay';
-                        target.statusUntil = null;
-                        target.ok = true;
-
-                        // Update the target in state and save
-                        window.appState.targets.set(target.userId, target);
-                        window.appState.saveTargets();
-
-                        // Update the UI to reflect the change
-                        window.appState.emit('target-updated', target);
-
-                        // Update the modal display
-                        document.getElementById('attack-prevention-status-text').textContent = 'Okay';
-                        document.querySelector('#modal-attack-prevention .status-badge')?.classList.remove('status-hospital', 'status-jail', 'status-federal');
-                        document.querySelector('#modal-attack-prevention .status-badge')?.classList.add('status-okay');
+                    // Timer reached zero - request a live refresh instead of forcing local state
+                    if (typeof requestStatusRecheck === 'function') {
+                        requestStatusRecheck(target.userId);
+                    } else if (window.appState?.refreshTarget) {
+                        window.appState.refreshTarget(target.userId);
                     }
                 }
             }, 1000);
@@ -8432,9 +8999,17 @@
         if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
         // Less than a week
         if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
-        
-        // Otherwise show date
-        return date.toLocaleDateString();
+
+        // Otherwise show date with time using the timestampFormat setting
+        const use24h = window.appState?.settings?.timestampFormat === '24h';
+        const timeOptions = {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: !use24h
+        };
+        const dateStr = date.toLocaleDateString();
+        const timeStr = date.toLocaleTimeString(undefined, timeOptions);
+        return `${dateStr} ${timeStr}`;
     }
 
     function formatNumber(value) {
@@ -8504,7 +9079,7 @@
             groups: true,
             attackHistory: true,
             statistics: true,
-            settings: true
+            settings: false
         },
         importFile: null,
         importData: null,
@@ -8527,6 +9102,7 @@
         loadDefaultPaths();
         loadRecentBackups();
         bindBackupEvents();
+        syncBackupSelectionsFromUI();
     }
 
     function bindBackupEvents() {
@@ -8552,8 +9128,10 @@
             item.addEventListener('click', () => {
                 const dataKey = item.dataset.key;
                 if (dataKey && backupState.selectedData.hasOwnProperty(dataKey)) {
-                    backupState.selectedData[dataKey] = !backupState.selectedData[dataKey];
-                    item.classList.toggle('checked', backupState.selectedData[dataKey]);
+                    const isChecked = item.classList.contains('checked');
+                    const nextState = !isChecked;
+                    backupState.selectedData[dataKey] = nextState;
+                    item.classList.toggle('checked', nextState);
                 }
             });
         });
@@ -8562,7 +9140,8 @@
         const selectAllBtn = document.getElementById('backup-select-all');
         if (selectAllBtn) {
             selectAllBtn.addEventListener('click', () => {
-                const allSelected = Object.values(backupState.selectedData).every(v => v);
+                const allSelected = Array.from(document.querySelectorAll('.backup-option'))
+                    .every(option => option.classList.contains('checked'));
                 Object.keys(backupState.selectedData).forEach(key => {
                     backupState.selectedData[key] = !allSelected;
                 });
@@ -8682,6 +9261,15 @@
         if (dismissBtn) {
             dismissBtn.addEventListener('click', hideBackupOverlay);
         }
+    }
+
+    function syncBackupSelectionsFromUI() {
+        document.querySelectorAll('.backup-option').forEach(item => {
+            const key = item.dataset.key;
+            if (!key) return;
+            const isChecked = item.classList.contains('checked');
+            backupState.selectedData[key] = isChecked;
+        });
     }
 
     function updateBackupHeader() {
@@ -8926,6 +9514,9 @@
         showBackupOverlay('export', 'Exporting backup...', 'Gathering your data');
 
         try {
+            // Keep state in sync with what the user sees
+            syncBackupSelectionsFromUI();
+
             // Gather data to export
             const [targets, groups, history, statistics, settings] = await Promise.all([
                 backupState.selectedData.targets ? window.electronAPI.getTargets() : null,
@@ -8950,6 +9541,7 @@
                 // Remove sensitive data from settings backup
                 const safeSettings = { ...settings };
                 delete safeSettings.apiKey;
+                delete safeSettings.tornStatsApiKey;
                 backupData.data.settings = safeSettings;
             }
 
@@ -9137,19 +9729,15 @@
         const dataTypes = ['targets', 'groups', 'attackHistory', 'statistics', 'settings'];
 
         dataTypes.forEach(type => {
+            const hasData = !!(data.data && data.data[type] !== undefined);
+            backupState.selectedData[type] = hasData;
+
             const item = document.querySelector(`.backup-view-import .backup-checkbox-item[data-type="${type}"]`);
             if (item) {
-                const hasData = data.data && data.data[type] !== undefined;
                 item.style.opacity = hasData ? '1' : '0.5';
                 item.style.pointerEvents = hasData ? 'auto' : 'none';
 
-                if (hasData) {
-                    item.classList.add('checked');
-                    backupState.selectedData[type] = true;
-                } else {
-                    item.classList.remove('checked');
-                    backupState.selectedData[type] = false;
-                }
+                item.classList.toggle('checked', hasData);
             }
         });
     }
@@ -9267,8 +9855,12 @@
             }
             if (data.settings) {
                 const currentSettings = await window.electronAPI.getSettings();
-                // Preserve API key
-                const newSettings = { ...data.settings, apiKey: currentSettings?.apiKey };
+                // Preserve API keys
+                const newSettings = {
+                    ...data.settings,
+                    apiKey: currentSettings?.apiKey,
+                    tornStatsApiKey: currentSettings?.tornStatsApiKey
+                };
                 await window.electronAPI.saveSettings(newSettings);
                 count += 1;
             }
@@ -9370,7 +9962,12 @@
             if (data.settings) {
                 const currentSettings = await window.electronAPI.getSettings() || {};
                 // Preserve API key and merge other settings
-                const newSettings = { ...currentSettings, ...data.settings, apiKey: currentSettings.apiKey };
+                const newSettings = {
+                    ...currentSettings,
+                    ...data.settings,
+                    apiKey: currentSettings.apiKey,
+                    tornStatsApiKey: currentSettings.tornStatsApiKey
+                };
                 await window.electronAPI.saveSettings(newSettings);
                 count++;
             }
@@ -9445,6 +10042,7 @@
 
         // Cache DOM elements
         cacheDOMElements();
+        hideRefreshStatusUI();
 
         // Build cloud provider dropdown with icons
         buildCloudProviderList();
