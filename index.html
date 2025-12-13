@@ -95,6 +95,9 @@
                     </svg>
                 </div>
                 <div class="activity-item" id="refresh-all-btn" title="Refresh All (Ctrl+R)">
+                    <span class="refresh-glow"></span>
+                    <span class="refresh-arc"></span>
+                    <span class="refresh-pulse"></span>
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                 </div>
             </div>
@@ -202,21 +205,40 @@
                     <div class="section-content">
                         <!-- Sort bar -->
                         <div class="sort-bar">
-                            <button class="sort-btn active" data-sort="name" title="Sort by name">
-                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/></svg>
-                            </button>
-                            <button class="sort-btn" data-sort="level" title="Sort by level">
-                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>
-                            </button>
-                            <button class="sort-btn" data-sort="status" title="Sort by status">
-                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                            </button>
-                            <button class="sort-btn" data-sort="lastAction" title="Sort by last action">
-                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
-                            </button>
-                            <button class="sort-btn" data-sort="favorite" title="Sort by favorite">
-                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
-                            </button>
+                            <div class="sort-buttons">
+                                <button class="sort-btn active" data-sort="name" title="Sort by name">
+                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/></svg>
+                                </button>
+                                <button class="sort-btn" data-sort="level" title="Sort by level">
+                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>
+                                </button>
+                                <button class="sort-btn" data-sort="status" title="Sort by status">
+                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                                </button>
+                                <button class="sort-btn" data-sort="lastAction" title="Sort by last action">
+                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+                                </button>
+                                <button class="sort-btn" data-sort="favorite" title="Sort by favorite">
+                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+                                </button>
+                            </div>
+                            <div class="attack-tracker" id="attack-tracker">
+                                <button class="attack-tracker-button" id="attack-tracker-toggle" title="Toggle attack tracker" aria-label="Toggle attack tracker">
+                                    <svg viewBox="0 0 20 20" class="attack-tracker-icon attack-tracker-icon--target" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <circle cx="10" cy="10" r="5.2"></circle>
+                                        <path d="M10 3.6v2.3"></path>
+                                        <path d="M10 14.1v2.3"></path>
+                                        <path d="M3.6 10h2.3"></path>
+                                        <path d="M14.1 10h2.3"></path>
+                                        <circle cx="10" cy="10" r="1.6" class="attack-tracker-dot"></circle>
+                                    </svg>
+                                </button>
+                                <button class="attack-tracker-button" id="attack-tracker-reset" title="Reset tracker progress" aria-label="Reset tracker" disabled>
+                                    <svg viewBox="0 0 24 24" class="attack-tracker-icon attack-tracker-icon--reset" aria-hidden="true">
+                                        <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"></path>
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                         <!-- Target list -->
                         <div class="target-list" id="target-list">
@@ -337,32 +359,52 @@
                                         </h3>
                                         <div class="intel-actions">
                                             <span class="intel-status" id="detail-intel-status">No intel</span>
-                                            <button class="icon-btn" id="btn-refresh-intel" title="Refresh intelligence">
-                                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 6V3L8 7l4 4V8c2.76 0 5 2.24 5 5a5 5 0 0 1-8.54 3.54l-1.42 1.42A7 7 0 0 0 19 13c0-3.86-3.14-7-7-7zm-5 7a5 5 0 0 1 8.54-3.54l1.42-1.42A7 7 0 0 0 5 13c0 3.86 3.14 7 7 7v3l4-4-4-4v3c-2.76 0-5-2.24-5-5z"/></svg>
-                                            </button>
+                                            <div class="intel-actions-view" id="intel-actions-view">
+                                                <button class="icon-btn" id="btn-edit-intel" title="Edit intelligence manually">
+                                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                                                </button>
+                                                <button class="icon-btn" id="btn-refresh-intel" title="Refresh intelligence">
+                                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 6V3L8 7l4 4V8c2.76 0 5 2.24 5 5a5 5 0 0 1-8.54 3.54l-1.42 1.42A7 7 0 0 0 19 13c0-3.86-3.14-7-7-7zm-5 7a5 5 0 0 1 8.54-3.54l1.42-1.42A7 7 0 0 0 5 13c0 3.86 3.14 7 7 7v3l4-4-4-4v3c-2.76 0-5-2.24-5-5z"/></svg>
+                                                </button>
+                                            </div>
+                                            <div class="intel-actions-edit" id="intel-actions-edit" style="display: none;">
+                                                <button class="intel-btn intel-btn-save" id="btn-save-intel" title="Save changes">
+                                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                                    Save
+                                                </button>
+                                                <button class="intel-btn intel-btn-cancel" id="btn-cancel-intel" title="Cancel editing">
+                                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                                                    Cancel
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                     <p class="intel-message" id="detail-intel-message">Configure TornStats to see estimated battle stats.</p>
-                                    <div class="intel-grid">
-                                        <div class="intel-stat">
+                                    <div class="intel-grid" id="intel-grid">
+                                        <div class="intel-stat" data-stat="strength">
                                             <span class="intel-label">Strength</span>
                                             <span class="intel-value" id="detail-intel-str">-</span>
+                                            <input type="text" class="intel-input" id="input-intel-str" placeholder="e.g. 1.5m or 1500000" style="display: none;">
                                         </div>
-                                        <div class="intel-stat">
+                                        <div class="intel-stat" data-stat="defense">
                                             <span class="intel-label">Defense</span>
                                             <span class="intel-value" id="detail-intel-def">-</span>
+                                            <input type="text" class="intel-input" id="input-intel-def" placeholder="e.g. 2.3m or 2300000" style="display: none;">
                                         </div>
-                                        <div class="intel-stat">
+                                        <div class="intel-stat" data-stat="speed">
                                             <span class="intel-label">Speed</span>
                                             <span class="intel-value" id="detail-intel-spd">-</span>
+                                            <input type="text" class="intel-input" id="input-intel-spd" placeholder="e.g. 800k or 800000" style="display: none;">
                                         </div>
-                                        <div class="intel-stat">
+                                        <div class="intel-stat" data-stat="dexterity">
                                             <span class="intel-label">Dexterity</span>
                                             <span class="intel-value" id="detail-intel-dex">-</span>
+                                            <input type="text" class="intel-input" id="input-intel-dex" placeholder="e.g. 1.2m or 1200000" style="display: none;">
                                         </div>
-                                        <div class="intel-stat total">
+                                        <div class="intel-stat total" data-stat="total">
                                             <span class="intel-label">Total</span>
                                             <span class="intel-value" id="detail-intel-total">-</span>
+                                            <span class="intel-total-auto" id="intel-total-auto" style="display: none;">Auto-calculated</span>
                                         </div>
                                     </div>
                                     <div class="intel-meta">
@@ -826,9 +868,33 @@
                             <!-- Bounty List -->
                             <div class="bounty-watchlist" id="bounty-watchlist">
                                 <div class="bounty-empty-state" id="bounty-empty-state">
-                                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z"/></svg>
-                                    <h4>No bounties tracked</h4>
-                                    <p>Add bounties from the newspaper to track them here</p>
+                                    <div class="bounty-empty-graphic">
+                                        <div class="bounty-empty-ring">
+                                            <div class="bounty-empty-icon">
+                                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z"/></svg>
+                                            </div>
+                                        </div>
+                                        <div class="bounty-empty-glow"></div>
+                                    </div>
+                                    <div class="bounty-empty-copy">
+                                        <div class="bounty-empty-kicker">Watchlist is clear</div>
+                                        <h4>Stage your first bounty</h4>
+                                        <p>Paste a target ID or name with the reward from the newspaper to pin it to your hit list.</p>
+                                        <div class="bounty-empty-actions">
+                                            <button type="button" class="bounty-empty-btn primary" id="btn-empty-add-bounty">
+                                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
+                                                Add first bounty
+                                            </button>
+                                            <button type="button" class="bounty-empty-btn ghost" id="btn-empty-focus-reward">
+                                                <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>
+                                                Jump to reward
+                                            </button>
+                                        </div>
+                                        <div class="bounty-empty-meta">
+                                            <span class="pill">Tracks expiry + claimed</span>
+                                            <span class="pill">Names or IDs supported</span>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="bounty-list" id="bounty-list">
                                     <!-- Bounty items will be rendered here -->
@@ -1425,276 +1491,430 @@
                     <div class="help-container">
                         <section class="help-hero">
                             <div class="help-hero-main">
-                                <p class="help-eyebrow">Help &amp; Runbook</p>
-                                <h2>Operate Torn Target Tracker with confidence</h2>
-                                <p class="help-lede">A styled knowledge base with setup, workflows, troubleshooting, notifications, backups, and shortcuts. Jump between sections below.</p>
-                                <div class="help-nav">
+                                <p class="help-eyebrow">Help Center</p>
+                                <h2>Operate Torn Target Tracker with clarity</h2>
+                                <p class="help-lede">Up-to-date guidance for setup, chains, loot timers, the attack tracker, backups, and recovery. Use the map to jump straight to what you need.</p>
+                                <div class="help-hero-actions">
+                                    <button class="action-btn primary" id="help-cta-onboarding">Start guided setup</button>
+                                    <button class="action-btn ghost" id="help-cta-settings">Open settings</button>
+                                    <button class="action-btn" id="help-cta-connection">Run connection check</button>
+                                </div>
+                                <div class="help-hero-meta">
+                                    <div class="help-pill">
+                                        <span class="pill-label">New</span>
+                                        <span class="pill-value accent">Attack Tracker</span>
+                                    </div>
+                                    <div class="help-pill">
+                                        <span class="pill-label">Reliability</span>
+                                        <span class="pill-value">Auto backups + richer logs</span>
+                                    </div>
+                                    <div class="help-pill">
+                                        <span class="pill-label">Navigation</span>
+                                        <span class="pill-value">Ctrl+Shift+P palette</span>
+                                    </div>
+                                </div>
+                                <div class="help-nav help-hero-nav">
+                                    <a class="help-nav-pill" href="#help-overview">Overview</a>
                                     <a class="help-nav-pill" href="#help-setup">Setup</a>
-                                    <a class="help-nav-pill" href="#help-workflow">Workflows</a>
-                                    <a class="help-nav-pill" href="#help-troubleshoot">Troubleshooting</a>
-                                    <a class="help-nav-pill" href="#help-alerts">Notifications</a>
-                                    <a class="help-nav-pill" href="#help-backups">Backups</a>
+                                    <a class="help-nav-pill" href="#help-workflow">Daily ops</a>
+                                    <a class="help-nav-pill" href="#help-troubleshoot">Recovery</a>
+                                    <a class="help-nav-pill" href="#help-alerts">Reliability</a>
                                     <a class="help-nav-pill" href="#help-shortcuts">Shortcuts</a>
                                     <a class="help-nav-pill" href="#help-glossary">Glossary</a>
-                                </div>
-                                <div class="help-hero-actions">
-                                    <button class="action-btn primary" id="help-cta-onboarding">Launch guided setup</button>
-                                    <button class="action-btn ghost" id="help-cta-settings">Open settings</button>
-                                    <button class="action-btn" id="help-cta-connection">Check connections</button>
                                 </div>
                             </div>
                             <div class="help-hero-tiles">
                                 <div class="help-mini-card">
-                                    <div class="help-mini-title">Quick start runbook</div>
+                                    <div class="help-mini-title">Operations snapshot</div>
                                     <ul class="help-mini-list">
-                                        <li>Validate Torn + TornStats keys in Settings.</li>
-                                        <li>Open <strong>Connection Status</strong> and confirm NET / API / STS are green.</li>
-                                        <li>Set Refresh Interval to 30-60 seconds and Concurrent Requests to 2-3.</li>
-                                        <li>Pause Auto Refresh for 60 seconds if rate limits spike.</li>
-                                        <li>Run <strong>Backup Now</strong> before imports or deletes.</li>
+                                        <li>Validate Torn + TornStats keys; NET / API / STS should stay green.</li>
+                                        <li>Keep Auto Refresh at 30-60 seconds with 2-3 concurrent requests.</li>
+                                        <li>Enable Attack Tracker before chains; reset it after a run.</li>
+                                        <li>Leave Auto Backup on and export before bulk edits or imports.</li>
+                                        <li>Use the Command Palette (Ctrl+Shift+P) to jump anywhere fast.</li>
                                     </ul>
-                                    <div class="help-hero-actions secondary">
-                                        <button class="action-btn" id="help-cta-backup">Backup now</button>
+                                </div>
+                                <div class="help-mini-card">
+                                    <div class="help-mini-title">Release highlights</div>
+                                    <div class="help-mini-list">
+                                        <li><strong>Attack tracker:</strong> Track completion across any filtered list.</li>
+                                        <li><strong>Loot timer refresh:</strong> Faster stats when a TornStats key is set.</li>
+                                        <li><strong>Reliability:</strong> Smoother rate limiting and clearer status toasts.</li>
+                                        <li><strong>Navigation:</strong> Command Palette plus refreshed sidebar mapping.</li>
+                                    </div>
+                                    <p class="help-mini-footnote">Need quick actions? Use the rail on the left to back up, open logs, or jump to data.</p>
+                                </div>
+                            </div>
+                        </section>
+                        <div class="help-shell">
+                            <aside class="help-rail">
+                                <div class="help-rail-block">
+                                    <p class="help-rail-label">Guide map</p>
+                                    <div class="help-rail-nav">
+                                        <a class="help-rail-link" href="#help-overview">Overview</a>
+                                        <a class="help-rail-link" href="#help-setup">Setup</a>
+                                        <a class="help-rail-link" href="#help-workflow">Daily ops</a>
+                                        <a class="help-rail-link" href="#help-troubleshoot">Recovery</a>
+                                        <a class="help-rail-link" href="#help-alerts">Reliability</a>
+                                        <a class="help-rail-link" href="#help-shortcuts">Shortcuts</a>
+                                        <a class="help-rail-link" href="#help-glossary">Glossary</a>
+                                    </div>
+                                </div>
+                                <div class="help-rail-block">
+                                    <p class="help-rail-label">Health checks</p>
+                                    <ul class="help-rail-list">
+                                        <li><span>API + TornStats keys</span><span class="help-rail-chip">Validated</span></li>
+                                        <li><span>Auto refresh</span><span class="help-rail-chip">30-60s</span></li>
+                                        <li><span>Concurrency</span><span class="help-rail-chip">2-3</span></li>
+                                        <li><span>Auto backup</span><span class="help-rail-chip success">On</span></li>
+                                    </ul>
+                                </div>
+                                <div class="help-rail-block">
+                                    <p class="help-rail-label">Quick actions</p>
+                                    <div class="help-rail-actions">
+                                        <button class="action-btn primary" id="help-cta-backup">Backup now</button>
                                         <button class="action-btn ghost" id="help-cta-logs">Open logs</button>
                                         <button class="action-btn ghost" id="help-cta-data">Data folder</button>
                                     </div>
                                 </div>
-                                <div class="help-mini-card">
-                                    <div class="help-mini-title">Fast links</div>
-                                    <div class="help-mini-links">
-                                        <a href="#help-setup" class="help-nav-pill">Setup</a>
-                                        <a href="#help-workflow" class="help-nav-pill">Ops</a>
-                                        <a href="#help-troubleshoot" class="help-nav-pill">Fix issues</a>
-                                        <a href="#help-alerts" class="help-nav-pill">Alerts</a>
-                                        <a href="#help-backups" class="help-nav-pill">Backups</a>
-                                        <a href="#help-shortcuts" class="help-nav-pill">Shortcuts</a>
-                                        <a href="#help-glossary" class="help-nav-pill">Glossary</a>
+                                <div class="help-rail-block help-callout" role="status">
+                                    <div class="help-caution-icon">!</div>
+                                    <div class="help-caution-text">
+                                        Updated for the latest features. Use the map to jump, or press Ctrl+Shift+P and type "Help".
                                     </div>
                                 </div>
-                            </div>
-                        </section>
+                            </aside>
 
-                        <div class="help-caution" role="status">
-                            <div class="help-caution-icon">!</div>
-                            <div class="help-caution-text">
-                                Heads up: this help section is mid-renovation, so layout and wording may change while we finalize the next release.
-                            </div>
-                        </div>
-
-                        <div class="help-section" id="help-setup">
-                            <div class="help-section-header">
-                                <p class="help-section-kicker">Setup &amp; onboarding</p>
-                                <h3>Get production-ready fast</h3>
-                                <p class="help-section-copy">Follow these fundamentals before you rely on the tracker during chains or raids.</p>
-                            </div>
-                            <div class="help-grid">
-                                <div class="help-card">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Configuration</p>
-                                            <h3>Five steps to stable setup</h3>
-                                        </div>
-                                        <span class="help-chip subtle">~3 minutes</span>
+                            <div class="help-main">
+                                <div class="help-section" id="help-overview">
+                                    <div class="help-section-header">
+                                        <p class="help-section-kicker">What's new and important</p>
+                                        <h3>Use the latest capabilities</h3>
+                                        <p class="help-section-copy">Highlights for the current release so you know which workflows changed.</p>
                                     </div>
-                                    <ol class="help-steps">
-                                        <li><span class="help-step-title">Connect API keys</span><span class="help-step-copy">Add your Torn key (required) and TornStats key (optional for loot timers). Validate both to confirm connectivity.</span></li>
-                                        <li><span class="help-step-title">Add targets</span><span class="help-step-copy">Use <strong>Add Target</strong> for single entries or <strong>Bulk Import</strong> to paste IDs/URLs. Start with a small batch.</span></li>
-                                        <li><span class="help-step-title">Group with intent</span><span class="help-step-copy">Create focused groups: <em>Farm</em>, <em>Do Not Attack</em>, <em>Faction</em>, <em>Chain</em>. Keep <em>All Targets</em> for audits.</span></li>
-                                        <li><span class="help-step-title">Tune refresh</span><span class="help-step-copy">Begin with Auto Refresh every 30-60 seconds, Concurrent Requests at 2-3, and API Rate Limit below your cap. Raise cautiously.</span></li>
-                                        <li><span class="help-step-title">Enable notifications</span><span class="help-step-copy">Turn on desktop + sound. Watch critical targets so their status changes always alert you.</span></li>
-                                    </ol>
+                                    <div class="help-grid help-grid-wide">
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Attack Tracker</p>
+                                                    <h3>Structured runs</h3>
+                                                </div>
+                                                <span class="help-chip success">Live</span>
+                                            </div>
+                                            <div class="help-list">
+                                                <li>Enable before you start a chain or sweep; it follows your filtered list.</li>
+                                                <li>Reset between runs to keep progress clean.</li>
+                                                <li>Watch critical targets so alerts still fire when you switch views.</li>
+                                            </div>
+                                        </div>
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Loot timer</p>
+                                                    <h3>Faster STS pulls</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-list">
+                                                <li>Add a TornStats key for richer loot timer data.</li>
+                                                <li>Keep Refresh Interval modest to avoid penalties while farming stats.</li>
+                                                <li>Use the Loot view to check cooldowns before committing energy.</li>
+                                            </div>
+                                        </div>
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Command palette</p>
+                                                    <h3>Navigate instantly</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-list">
+                                                <li>Press <code>Ctrl+Shift+P</code> and type any view, target action, or setting.</li>
+                                                <li>Great for jumping between Help, Settings, Backup, or Attack Tracker.</li>
+                                                <li>Use the menu detail text to learn shortcuts as you go.</li>
+                                            </div>
+                                        </div>
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Reliability</p>
+                                                    <h3>Stay resilient</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-list">
+                                                <li>Auto Backup is designed to run quietly; keep it on unless testing.</li>
+                                                <li>Use <strong>Open logs</strong> when something feels off before restarting.</li>
+                                                <li>Reduce concurrency first if rate limits spike.</li>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="help-card" id="help-workflow">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Daily operations</p>
-                                            <h3>Workflows that keep you ahead</h3>
+                                <div class="help-section" id="help-setup">
+                                    <div class="help-section-header">
+                                        <p class="help-section-kicker">Setup and onboarding</p>
+                                        <h3>Ship a stable configuration</h3>
+                                        <p class="help-section-copy">Follow these fundamentals before you rely on the tracker during chains or raids.</p>
+                                    </div>
+                                    <div class="help-grid">
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Configuration</p>
+                                                    <h3>Five steps to a clean start</h3>
+                                                </div>
+                                                <span class="help-chip subtle">~3 minutes</span>
+                                            </div>
+                                            <ol class="help-steps">
+                                                <li><span class="help-step-title">Connect API keys</span><span class="help-step-copy">Add your Torn key (required) and TornStats key (optional for loot timers). Validate both to confirm connectivity.</span></li>
+                                                <li><span class="help-step-title">Add targets</span><span class="help-step-copy">Use <strong>Add Target</strong> for single entries or <strong>Bulk Import</strong> to paste IDs/URLs. Start with a small batch.</span></li>
+                                                <li><span class="help-step-title">Group with intent</span><span class="help-step-copy">Create focused groups: <em>Farm</em>, <em>Do Not Attack</em>, <em>Faction</em>, <em>Chain</em>. Keep <em>All Targets</em> for audits.</span></li>
+                                                <li><span class="help-step-title">Tune refresh</span><span class="help-step-copy">Begin with Auto Refresh every 30-60 seconds, Concurrent Requests at 2-3, and API Rate Limit below your cap. Raise cautiously.</span></li>
+                                                <li><span class="help-step-title">Enable notifications</span><span class="help-step-copy">Turn on desktop + sound. Watch critical targets so their status changes always alert you.</span></li>
+                                            </ol>
                                         </div>
-                                    </div>
-                                    <div class="help-list">
-                                        <li><strong>Triage:</strong> Filter to <em>Attackable</em>, then scan <em>Hospital/Jail</em> for upcoming windows. Collapse groups you don't need.</li>
-                                        <li><strong>Update intel:</strong> After travel/jail release, refresh intel and notes before engaging.</li>
-                                        <li><strong>Notes discipline:</strong> Use templates for opener/finisher and chain tactics; keep notes actionable.</li>
-                                        <li><strong>Watchlist hygiene:</strong> Watch only must-not-miss targets; unwatch noisy or stale ones.</li>
-                                        <li><strong>Backup rhythm:</strong> Leave Auto Backup on; run manual backups before imports or deletes.</li>
-                                        <li><strong>Export &amp; test:</strong> Export before risky edits; re-import a small subset to verify format.</li>
-                                    </div>
-                                </div>
-                                <div class="help-card">
-                                    <div class="help-card-header">
-                                    <div>
-                                            <p class="help-card-eyebrow">Advanced</p>
-                                            <h3>Targeting discipline</h3>
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Connections</p>
+                                                    <h3>Keep signals green</h3>
+                                                </div>
+                                            </div>
+                                            <ul class="help-list">
+                                                <li>Use <strong>Run connection check</strong> to validate Torn + TornStats after key changes.</li>
+                                                <li>If STS is red, confirm TornStats permissions include Public and wait 60 seconds.</li>
+                                                <li>Drop concurrency to 2 if you see spikes; slowly increase once stable.</li>
+                                                <li>Pause Auto Refresh while importing to avoid overlapping calls.</li>
+                                            </ul>
                                         </div>
-                                    </div>
-                                    <ul class="help-list">
-                                        <li><strong>Intel freshness:</strong> Refresh profiles after travel/jail release; re-evaluate difficulty.</li>
-                                        <li><strong>Notes templates:</strong> Use presets for consistent openers and chain finishers.</li>
-                                        <li><strong>Bulk safety:</strong> Turn on pre-change backups before imports or mass deletes.</li>
-                                        <li><strong>Chain prep:</strong> Pre-stage targets, pin notes, and confirm status before spending energy.</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="help-section" id="help-troubleshoot">
-                            <div class="help-section-header">
-                                <p class="help-section-kicker">Troubleshooting</p>
-                                <h3>Fix issues fast</h3>
-                                <p class="help-section-copy">Follow these playbooks when something feels off.</p>
-                            </div>
-                            <div class="help-grid">
-                                <div class="help-card help-card-troubleshoot">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Statuses</p>
-                                            <h3>Not updating</h3>
-                                        </div>
-                                    </div>
-                                    <div class="help-troubles">
-                                        <div class="help-trouble">
-                                            <div class="help-trouble-title">Quick fixes</div>
-                                            <ul>
-                                                <li>Validate Torn key; ensure permissions include "Public".</li>
-                                                <li>Open Connection Status; confirm NET, API, STS are green.</li>
-                                                <li>Set Concurrent Requests to 2 and retry Refresh All.</li>
-                                                <li>Increase Refresh Interval to 45-60 seconds temporarily.</li>
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Safety net</p>
+                                                    <h3>Backups and restores</h3>
+                                                </div>
+                                            </div>
+                                            <ul class="help-list">
+                                                <li>Keep Auto Backup on; point it to a synced folder for redundancy.</li>
+                                                <li>Run <em>Backup now</em> before bulk imports, deletes, or mass edits.</li>
+                                                <li>Export before experimenting; re-import a small subset to validate format.</li>
+                                                <li>For a hard reset: export, wipe, import the clean file, verify counts.</li>
                                             </ul>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="help-card help-card-troubleshoot">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Visibility</p>
-                                            <h3>Targets look missing</h3>
-                                        </div>
+                                <div class="help-section" id="help-workflow">
+                                    <div class="help-section-header">
+                                        <p class="help-section-kicker">Daily operations</p>
+                                        <h3>Run smooth chains and sweeps</h3>
+                                        <p class="help-section-copy">Lean workflows for triage, chains, and loot without burning rate limits.</p>
                                     </div>
-                                    <div class="help-troubles">
-                                        <div class="help-trouble">
-                                            <div class="help-trouble-title">Quick fixes</div>
-                                            <ul>
-                                                <li>Clear search; set Filters to <strong>All</strong>.</li>
-                                                <li>Select <strong>All Targets</strong>; expand collapsed sections.</li>
-                                                <li>If recently deleted, re-import from your latest backup/export.</li>
+                                    <div class="help-grid help-grid-wide">
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Triage</p>
+                                                    <h3>Stay ahead of timers</h3>
+                                                </div>
+                                            </div>
+                                            <ul class="help-list">
+                                                <li>Filter to <em>Attackable</em> first, then scan <em>Hospital/Jail</em> for upcoming windows.</li>
+                                                <li>Collapse groups you do not need during chains to speed up scanning.</li>
+                                                <li>Use notes for opener/finisher plans and consumables used.</li>
+                                            </ul>
+                                        </div>
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Chain discipline</p>
+                                                    <h3>Use Attack Tracker</h3>
+                                                </div>
+                                            </div>
+                                            <ul class="help-list">
+                                                <li>Enable the tracker on your filtered list before spending energy.</li>
+                                                <li>Mark high-risk targets as watched so alerts punch through other views.</li>
+                                                <li>Reset the tracker after chains to clear stale progress.</li>
+                                            </ul>
+                                        </div>
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Intel hygiene</p>
+                                                    <h3>Keep data fresh</h3>
+                                                </div>
+                                            </div>
+                                            <ul class="help-list">
+                                                <li>Refresh profiles after travel/jail release before attacking.</li>
+                                                <li>Use favorites + watched flags to sort critical targets to the top.</li>
+                                                <li>Clean notes weekly; remove stale tactics and add outcomes.</li>
                                             </ul>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="help-card help-card-troubleshoot">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Notifications</p>
-                                            <h3>Alerts are silent</h3>
-                                        </div>
+                                <div class="help-section" id="help-troubleshoot">
+                                    <div class="help-section-header">
+                                        <p class="help-section-kicker">Recovery</p>
+                                        <h3>Fix issues fast</h3>
+                                        <p class="help-section-copy">If something feels off, try these focused playbooks.</p>
                                     </div>
-                                    <div class="help-troubles">
-                                        <div class="help-trouble">
-                                            <div class="help-trouble-title">Quick fixes</div>
-                                            <ul>
-                                                <li>Enable desktop + sound in Notifications.</li>
-                                                <li>Toggle <em>Notify only monitored</em> off to test.</li>
-                                                <li>Watch a target, change its status, and confirm a toast.</li>
-                                            </ul>
+                                    <div class="help-grid">
+                                        <div class="help-card help-card-troubleshoot">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Statuses</p>
+                                                    <h3>Not updating</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-troubles">
+                                                <div class="help-trouble">
+                                                    <div class="help-trouble-title">Quick fixes</div>
+                                                    <ul>
+                                                        <li>Validate Torn key; ensure permissions include "Public".</li>
+                                                        <li>Open Connection Status; confirm NET, API, STS are green.</li>
+                                                        <li>Set Concurrent Requests to 2 and retry Refresh All.</li>
+                                                        <li>Increase Refresh Interval to 45-60 seconds temporarily.</li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="help-card help-card-troubleshoot">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Visibility</p>
+                                                    <h3>Targets look missing</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-troubles">
+                                                <div class="help-trouble">
+                                                    <div class="help-trouble-title">Quick fixes</div>
+                                                    <ul>
+                                                        <li>Clear search; set Filters to <strong>All</strong>.</li>
+                                                        <li>Select <strong>All Targets</strong>; expand collapsed sections.</li>
+                                                        <li>If recently deleted, re-import from your latest backup/export.</li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="help-card help-card-troubleshoot">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Notifications</p>
+                                                    <h3>Alerts are silent</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-troubles">
+                                                <div class="help-trouble">
+                                                    <div class="help-trouble-title">Quick fixes</div>
+                                                    <ul>
+                                                        <li>Enable desktop + sound in Notifications.</li>
+                                                        <li>Toggle <em>Notify only monitored</em> off to test.</li>
+                                                        <li>Watch a target, change its status, and confirm a toast.</li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="help-card help-card-troubleshoot">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Rate limits</p>
+                                                    <h3>API penalties</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-troubles">
+                                                <div class="help-trouble">
+                                                    <div class="help-trouble-title">Quick fixes</div>
+                                                    <ul>
+                                                        <li>Raise Refresh Interval; keep Concurrent Requests at 2-3.</li>
+                                                        <li>Pause Auto Refresh for 60 seconds to clear penalties.</li>
+                                                        <li>Avoid running bulk imports alongside manual refreshes.</li>
+                                                    </ul>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="help-card help-card-troubleshoot">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Rate limits</p>
-                                            <h3>API penalties</h3>
-                                        </div>
+                                <div class="help-section" id="help-alerts">
+                                    <div class="help-section-header">
+                                        <p class="help-section-kicker">Reliability</p>
+                                        <h3>Alerts and data safety</h3>
+                                        <p class="help-section-copy">Keep signals meaningful and make sure your data stays recoverable.</p>
                                     </div>
-                                    <div class="help-troubles">
-                                        <div class="help-trouble">
-                                            <div class="help-trouble-title">Quick fixes</div>
-                                            <ul>
-                                                <li>Raise Refresh Interval; keep Concurrent Requests at 2-3.</li>
-                                                <li>Pause Auto Refresh for 60 seconds to clear penalties.</li>
-                                                <li>Avoid running bulk imports alongside manual refreshes.</li>
-                                            </ul>
+                                    <div class="help-grid help-grid-wide">
+                                        <div class="help-card">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Notifications</p>
+                                                    <h3>Keep alerts actionable</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-list">
+                                                <li><strong>Monitored-only mode:</strong> Use this to quiet noise; watch only high-priority targets.</li>
+                                                <li><strong>Status-to-action mapping:</strong> Hospital/Jail expiring soon -> prep energy; Traveling -> set a reminder to check landing.</li>
+                                                <li><strong>Sound discipline:</strong> Keep sound on for attackable; off for informational signals.</li>
+                                                <li><strong>Recovery plan:</strong> If alerts fail, follow the notification troubleshooting steps before restarting.</li>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
 
-                        <div class="help-section" id="help-alerts">
-                            <div class="help-section-header">
-                                <p class="help-section-kicker">Alerts &amp; backups</p>
-                                <h3>Stay informed and protected</h3>
-                                <p class="help-section-copy">Keep alerts meaningful and your data safe.</p>
-                            </div>
-                            <div class="help-grid help-grid-wide">
-                                <div class="help-card">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Notifications &amp; watch rules</p>
-                                            <h3>Alerting that stays meaningful</h3>
+                                        <div class="help-card" id="help-backups">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Data safety</p>
+                                                    <h3>Backups, imports, and resets</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-list">
+                                                <li><strong>Auto backup:</strong> Keep it on; choose a cadence that matches your change volume.</li>
+                                                <li><strong>Pre-change backup:</strong> Run <em>Backup now</em> before bulk deletes, imports, or restructures.</li>
+                                                <li><strong>Cloud copy:</strong> Point backups to a synced folder (Drive/Dropbox/OneDrive/etc.).</li>
+                                                <li><strong>Safe restore:</strong> Export current targets, then import the backup; verify counts and groups.</li>
+                                                <li><strong>Hard reset plan:</strong> Export, wipe, re-import a clean file; keep one copy offline.</li>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div class="help-list">
-                                        <li><strong>Monitored-only mode:</strong> Use this to quiet noise; watch only high-priority targets.</li>
-                                        <li><strong>Status-to-action mapping:</strong> Hospital/Jail expiring soon -> prep energy; Traveling -> set a reminder to check landing.</li>
-                                        <li><strong>Sound discipline:</strong> Keep sound on for attackable; off for informational signals.</li>
-                                        <li><strong>Rehearse recovery:</strong> If alerts fail, follow the notification troubleshooting steps.</li>
-                                    </div>
-                                </div>
+                                        <div class="help-card" id="help-shortcuts">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Navigation</p>
+                                                    <h3>Keyboard map</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-shortcuts">
+                                                <div class="help-shortcut-row"><code>Ctrl+1..6</code><span>Switch Targets, History, Stats, Loot, Bounties, Help</span></div>
+                                                <div class="help-shortcut-row"><code>Ctrl+Shift+P</code><span>Command Palette</span></div>
+                                                <div class="help-shortcut-row"><code>Ctrl+Shift+B</code><span>Bulk Import Targets</span></div>
+                                                <div class="help-shortcut-row"><code>Ctrl+Shift+K</code><span>Quick Backup</span></div>
+                                                <div class="help-shortcut-row"><code>Ctrl+R</code><span>Refresh all targets</span></div>
+                                                <div class="help-shortcut-row"><code>Ctrl+,</code><span>Open Settings</span></div>
+                                                <div class="help-shortcut-row"><code>Enter</code><span>Attack selected (when attackable)</span></div>
+                                                <div class="help-shortcut-row"><code>F1</code><span>Launch onboarding</span></div>
+                                            </div>
+                                        </div>
 
-                                <div class="help-card" id="help-backups">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Data safety</p>
-                                            <h3>Backups, imports, and resets</h3>
+                                        <div class="help-card" id="help-glossary">
+                                            <div class="help-card-header">
+                                                <div>
+                                                    <p class="help-card-eyebrow">Glossary and playbook</p>
+                                                    <h3>Shared language</h3>
+                                                </div>
+                                            </div>
+                                            <div class="help-list">
+                                                <li><strong>Watched:</strong> A target marked for priority alerts; combine with favorites for sorting.</li>
+                                                <li><strong>Coming Soon:</strong> Hospital/Jail timers nearing completion; prep energy and consumables.</li>
+                                                <li><strong>Attack tracker:</strong> Progress tracker tied to your current filters; reset between runs.</li>
+                                                <li><strong>Refresh hygiene:</strong> Keep intervals modest and concurrency low to preserve rate limits.</li>
+                                                <li><strong>Chain mode:</strong> Pre-plan targets, refresh intel, and pin notes with opener/finisher sequences.</li>
+                                                <li><strong>Safety net:</strong> Backups + exports before any destructive action; verify after restore.</li>
+                                            </div>
+                                            <div class="help-faq">
+                                                <div class="help-faq-q">When should I export vs. back up?</div>
+                                                <div class="help-faq-a">Use backups for quick restores and exports for portable copies or audits. Do both before risky edits.</div>
+                                                <div class="help-faq-q">How do I stay under rate limits?</div>
+                                                <div class="help-faq-a">Keep refresh at 30-60s, set concurrency to 2, pause Auto Refresh during imports, and retry after a 60s cool-down if penalized.</div>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div class="help-list">
-                                        <li><strong>Auto backup:</strong> Keep it on; choose a cadence that matches your change volume.</li>
-                                        <li><strong>Pre-change backup:</strong> Run <em>Backup Now</em> before bulk deletes, imports, or restructures.</li>
-                                        <li><strong>Cloud copy:</strong> Point backups to a synced folder (Drive/Dropbox/OneDrive/etc.).</li>
-                                        <li><strong>Safe restore:</strong> Export current targets, then import the backup; verify counts and groups.</li>
-                                        <li><strong>Hard reset plan:</strong> Export, wipe, re-import a clean file; keep one copy offline.</li>
-                                    </div>
-                                </div>
-
-                                <div class="help-card" id="help-shortcuts">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Navigation</p>
-                                            <h3>Keyboard map</h3>
-                                        </div>
-                                    </div>
-                                    <div class="help-shortcuts">
-                                        <div class="help-shortcut-row"><code>Ctrl+1..5</code><span>Switch Targets, History, Stats, Loot, Help</span></div>
-                                        <div class="help-shortcut-row"><code>Ctrl+,</code><span>Open Settings</span></div>
-                                        <div class="help-shortcut-row"><code>Ctrl+Shift+P</code><span>Command Palette</span></div>
-                                        <div class="help-shortcut-row"><code>Ctrl+R</code><span>Refresh all targets</span></div>
-                                        <div class="help-shortcut-row"><code>Enter</code><span>Attack selected (when attackable)</span></div>
-                                        <div class="help-shortcut-row"><code>F1</code><span>Launch onboarding</span></div>
-                                    </div>
-                                </div>
-
-                                <div class="help-card" id="help-glossary">
-                                    <div class="help-card-header">
-                                        <div>
-                                            <p class="help-card-eyebrow">Glossary &amp; playbook</p>
-                                            <h3>Shared language</h3>
-                                        </div>
-                                    </div>
-                                    <div class="help-list">
-                                        <li><strong>Watched:</strong> A target marked for priority alerts; combine with favorites for sorting.</li>
-                                        <li><strong>Coming Soon:</strong> Hospital/Jail timers nearing completion; prep energy and consumables.</li>
-                                        <li><strong>Refresh hygiene:</strong> Keep intervals modest and concurrency low to preserve rate limits.</li>
-                                        <li><strong>Chain mode:</strong> Pre-plan targets, refresh intel, and pin notes with opener/finisher sequences.</li>
-                                        <li><strong>Safety net:</strong> Backups + exports before any destructive action; verify after restore.</li>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-
                 <!-- Backup & Restore Panel -->
                 <div class="content-panel" id="panel-backup">
                     <div class="backup-container">
@@ -2156,32 +2376,77 @@
                 <div class="status-item" id="status-rate">
                     <span id="rate-text">Rate: 100/min</span>
                     <div class="rate-popover" id="rate-popover">
-                        <div class="rate-popover-header">API Rate Limit</div>
-                        <div class="rate-popover-content">
-                            <div class="rate-popover-row">
-                                <span class="rate-popover-label">Available:</span>
-                                <span class="rate-popover-value" id="rate-popover-available">--</span>
+                        <div class="rate-popover-header">
+                            <div class="rate-popover-title">
+                                <span class="rate-pulse-dot"></span>
+                                <div class="rate-heading-block">
+                                    <div class="rate-popover-heading">API Rate Limit</div>
+                                    <div class="rate-popover-subtitle" id="rate-popover-window">Rolling 60s window · burst protected</div>
+                                </div>
                             </div>
-                            <div class="rate-popover-row">
-                                <span class="rate-popover-label">Recent Requests:</span>
-                                <span class="rate-popover-value" id="rate-popover-recent">--</span>
+                            <span class="rate-chip" id="rate-chip-state">Stable</span>
+                        </div>
+                        <div class="rate-popover-body">
+                            <div class="rate-meter">
+                                <div class="rate-meter-fill" id="rate-meter-fill"></div>
+                                <div class="rate-meter-overlay"></div>
+                                <div class="rate-meter-text"><span id="rate-meter-available">--</span>/<span id="rate-meter-max">--</span> tokens</div>
                             </div>
-                            <div class="rate-popover-row">
-                                <span class="rate-popover-label">Utilization:</span>
-                                <span class="rate-popover-value" id="rate-popover-utilization">--</span>
-                            </div>
-                            <div class="rate-popover-row" id="rate-popover-penalty-row" style="display: none;">
-                                <span class="rate-popover-label">Penalty:</span>
-                                <span class="rate-popover-value" id="rate-popover-penalty">--</span>
+                            <div class="rate-popover-grid">
+                                <div class="rate-stat">
+                                    <div class="rate-stat-label">Available now</div>
+                                    <div class="rate-stat-value" id="rate-popover-available">--</div>
+                                    <div class="rate-stat-hint">safe requests remaining</div>
+                                </div>
+                                <div class="rate-stat">
+                                    <div class="rate-stat-label">Used in window</div>
+                                    <div class="rate-stat-value" id="rate-popover-recent">--</div>
+                                    <div class="rate-stat-hint">last 60s</div>
+                                </div>
+                                <div class="rate-stat">
+                                    <div class="rate-stat-label">Utilization</div>
+                                    <div class="rate-stat-value" id="rate-popover-utilization">--</div>
+                                    <div class="rate-stat-hint">of current window</div>
+                                </div>
+                                <div class="rate-stat">
+                                    <div class="rate-stat-label">Next token</div>
+                                    <div class="rate-stat-value" id="rate-popover-next-token">--</div>
+                                    <div class="rate-stat-hint">until another slot opens</div>
+                                </div>
+                                <div class="rate-stat" id="rate-popover-penalty-card">
+                                    <div class="rate-stat-label">Cooldown/Penalty</div>
+                                    <div class="rate-stat-value" id="rate-popover-penalty">--</div>
+                                    <div class="rate-stat-hint">server enforced delay</div>
+                                </div>
                             </div>
                             <div class="rate-popover-divider"></div>
-                            <div class="rate-popover-row">
-                                <span class="rate-popover-label">Success:</span>
-                                <span class="rate-popover-value" id="rate-popover-success">--</span>
-                            </div>
-                            <div class="rate-popover-row">
-                                <span class="rate-popover-label">Failed:</span>
-                                <span class="rate-popover-value" id="rate-popover-failed">--</span>
+                            <div class="rate-popover-rows">
+                                <div class="rate-outcome success">
+                                    <div class="rate-outcome-header">
+                                        <span class="rate-outcome-label">Success</span>
+                                        <div class="rate-outcome-metrics">
+                                            <span class="rate-outcome-count" id="rate-popover-success">--</span>
+                                            <span class="rate-outcome-percent" id="rate-popover-success-percent">--%</span>
+                                        </div>
+                                    </div>
+                                    <div class="rate-outcome-bar">
+                                        <div class="rate-outcome-fill success" id="rate-popover-success-bar"></div>
+                                        <div class="rate-outcome-shine"></div>
+                                    </div>
+                                </div>
+                                <div class="rate-outcome failed">
+                                    <div class="rate-outcome-header">
+                                        <span class="rate-outcome-label">Failed</span>
+                                        <div class="rate-outcome-metrics">
+                                            <span class="rate-outcome-count" id="rate-popover-failed">--</span>
+                                            <span class="rate-outcome-percent" id="rate-popover-failed-percent">--%</span>
+                                        </div>
+                                    </div>
+                                    <div class="rate-outcome-bar">
+                                        <div class="rate-outcome-fill failed" id="rate-popover-failed-bar"></div>
+                                        <div class="rate-outcome-shine"></div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2986,8 +3251,24 @@ https://www.torn.com/loader.php?sid=attack&user2ID=345678
     </div>
 
     <!-- Scripts -->
-    <script src="src/api.js"></script>
-    <script src="src/state.js"></script>
+    <!-- API Module (split into components) -->
+    <script src="src/api/config.js"></script>
+    <script src="src/api/errors.js"></script>
+    <script src="src/api/rateLimiter.js"></script>
+    <script src="src/api/targetInfo.js"></script>
+    <script src="src/api/inputParser.js"></script>
+    <script src="src/api/tornApi.js"></script>
+    <script src="src/api/tornStatsApi.js"></script>
+    <script src="src/api/index.js"></script>
+    <!-- Application State Modules -->
+    <script src="src/state/core.js"></script>
+    <script src="src/state/cache.js"></script>
+    <script src="src/state/targets.js"></script>
+    <script src="src/state/refresh.js"></script>
+    <script src="src/state/attackTracker.js"></script>
+    <script src="src/state/bounties.js"></script>
+    <script src="src/state/index.js"></script>
+    <!-- Application UI -->
     <script src="src/app.js"></script>
 </body>
 </html>

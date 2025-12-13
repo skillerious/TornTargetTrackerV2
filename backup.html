@@ -1,0 +1,2756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+    <title>Backup & Restore</title>
+    <style>
+        :root {
+            --bg-base: #0d1117;
+            --bg-surface: #161b22;
+            --bg-overlay: #1c2128;
+            --bg-elevated: #21262d;
+            --border-default: #30363d;
+            --border-muted: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --green: #3fb950;
+            --green-muted: rgba(63, 185, 80, 0.15);
+            --yellow: #d29922;
+            --yellow-muted: rgba(210, 153, 34, 0.15);
+            --red: #f85149;
+            --red-muted: rgba(248, 81, 73, 0.15);
+            --blue: #58a6ff;
+            --blue-muted: rgba(88, 166, 255, 0.15);
+            --purple: #a371f7;
+            --purple-muted: rgba(163, 113, 247, 0.15);
+            --cyan: #39c5cf;
+            --cyan-muted: rgba(57, 197, 207, 0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: transparent;
+            color: var(--text-primary);
+            user-select: none;
+            overflow: hidden;
+        }
+
+        .dialog {
+            width: 580px;
+            background: var(--bg-base);
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+            animation: slideIn 0.25s ease-out;
+            overflow: hidden;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-12px) scale(0.98);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* Titlebar */
+        .titlebar {
+            height: 32px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-default);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-app-region: drag;
+            position: relative;
+        }
+
+        .titlebar-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .titlebar-close {
+            position: absolute;
+            right: 8px;
+            width: 28px;
+            height: 22px;
+            border: none;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-app-region: no-drag;
+            transition: background 0.15s;
+        }
+
+        .titlebar-close:hover {
+            background: var(--red);
+        }
+
+        .titlebar-close svg {
+            width: 10px;
+            height: 10px;
+            stroke: var(--text-secondary);
+            stroke-width: 1.5;
+        }
+
+        .titlebar-close:hover svg {
+            stroke: white;
+        }
+
+        /* Header */
+        .header {
+            padding: 20px 24px 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            border-bottom: 1px solid var(--border-muted);
+        }
+
+        .header-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header-icon.export-mode {
+            background: linear-gradient(135deg, var(--blue-muted), var(--cyan-muted));
+        }
+
+        .header-icon.import-mode {
+            background: linear-gradient(135deg, var(--green-muted), var(--cyan-muted));
+        }
+
+        .header-icon svg {
+            width: 24px;
+            height: 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header-icon.export-mode svg {
+            stroke: var(--blue);
+        }
+
+        .header-icon.import-mode svg {
+            stroke: var(--green);
+        }
+
+        .header-icon::after {
+            content: '';
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: radial-gradient(circle, currentColor 0%, transparent 70%);
+            opacity: 0.3;
+            animation: iconPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes iconPulse {
+            0%, 100% { transform: scale(0.8); opacity: 0.2; }
+            50% { transform: scale(1.2); opacity: 0.4; }
+        }
+
+        .header-text h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .header-text p {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        /* Mode Switcher */
+        .mode-switcher {
+            display: flex;
+            gap: 2px;
+            padding: 16px 24px 0;
+            background: var(--bg-base);
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 12px 16px;
+            background: transparent;
+            border: 1px solid transparent;
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .mode-btn:hover {
+            color: var(--text-primary);
+            background: var(--bg-overlay);
+        }
+
+        .mode-btn.active {
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            border-color: var(--border-default);
+        }
+
+        .mode-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--bg-surface);
+        }
+
+        .mode-btn svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+        }
+
+        .mode-btn.active.export svg {
+            stroke: var(--blue);
+        }
+
+        .mode-btn.active.restore svg {
+            stroke: var(--green);
+        }
+
+        /* Content Area */
+        .content {
+            background: var(--bg-surface);
+            border-top: 1px solid var(--border-default);
+            min-height: 320px;
+            max-height: 520px;
+            overflow-y: auto;
+        }
+
+        .view {
+            display: none;
+            padding: 20px 24px;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Section Titles */
+        .section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-muted);
+        }
+
+        /* Checkbox Items */
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            background: var(--bg-overlay);
+            border: 1px solid var(--border-muted);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .checkbox-item:hover {
+            border-color: var(--border-default);
+            background: var(--bg-elevated);
+        }
+
+        .checkbox-item.checked {
+            border-color: var(--blue);
+            background: var(--blue-muted);
+        }
+
+        .checkbox-item.import-mode.checked {
+            border-color: var(--green);
+            background: var(--green-muted);
+        }
+
+        .checkbox-box {
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--border-default);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+
+        .checkbox-item.checked .checkbox-box {
+            background: var(--blue);
+            border-color: var(--blue);
+        }
+
+        .checkbox-item.import-mode.checked .checkbox-box {
+            background: var(--green);
+            border-color: var(--green);
+        }
+
+        .checkbox-box svg {
+            width: 12px;
+            height: 12px;
+            stroke: white;
+            stroke-width: 2.5;
+            opacity: 0;
+            transform: scale(0.5);
+            transition: all 0.15s;
+        }
+
+        .checkbox-item.checked .checkbox-box svg {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .checkbox-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .checkbox-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+
+        .checkbox-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .checkbox-count {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+        }
+
+        .checkbox-item.checked .checkbox-count {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        /* File Drop Zone */
+        .drop-zone {
+            border: 2px dashed var(--border-default);
+            border-radius: 12px;
+            padding: 32px;
+            text-align: center;
+            transition: all 0.2s;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        .drop-zone:hover {
+            border-color: var(--green);
+            background: var(--green-muted);
+        }
+
+        .drop-zone.dragover {
+            border-color: var(--green);
+            background: var(--green-muted);
+            transform: scale(1.01);
+        }
+
+        .drop-zone.has-file {
+            border-style: solid;
+            border-color: var(--green);
+            background: var(--green-muted);
+        }
+
+        .drop-zone-icon {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-elevated);
+            border-radius: 12px;
+            transition: all 0.2s;
+        }
+
+        .drop-zone:hover .drop-zone-icon,
+        .drop-zone.dragover .drop-zone-icon {
+            background: rgba(63, 185, 80, 0.2);
+        }
+
+        .drop-zone.has-file .drop-zone-icon {
+            background: var(--green);
+        }
+
+        .drop-zone-icon svg {
+            width: 24px;
+            height: 24px;
+            stroke: var(--text-secondary);
+            transition: stroke 0.2s;
+        }
+
+        .drop-zone:hover .drop-zone-icon svg,
+        .drop-zone.dragover .drop-zone-icon svg {
+            stroke: var(--green);
+        }
+
+        .drop-zone.has-file .drop-zone-icon svg {
+            stroke: white;
+        }
+
+        .drop-zone-text {
+            font-size: 14px;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .drop-zone-hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .drop-zone.has-file .drop-zone-text {
+            color: var(--green);
+        }
+
+        /* File Info */
+        .file-info {
+            display: none;
+            background: var(--bg-overlay);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 20px;
+        }
+
+        .file-info.visible {
+            display: block;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .file-info-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .file-info-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--green-muted);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .file-info-icon svg {
+            width: 16px;
+            height: 16px;
+            stroke: var(--green);
+        }
+
+        .file-info-name {
+            flex: 1;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-info-remove {
+            width: 24px;
+            height: 24px;
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s;
+        }
+
+        .file-info-remove:hover {
+            background: var(--red-muted);
+        }
+
+        .file-info-remove svg {
+            width: 14px;
+            height: 14px;
+            stroke: var(--text-secondary);
+        }
+
+        .file-info-remove:hover svg {
+            stroke: var(--red);
+        }
+
+        .file-info-meta {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .file-info-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .file-info-meta-item svg {
+            width: 14px;
+            height: 14px;
+            stroke: var(--text-muted);
+        }
+
+        /* Preview Panel */
+        .preview-panel {
+            background: var(--bg-overlay);
+            border: 1px solid var(--border-muted);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+
+        .preview-header {
+            padding: 10px 14px;
+            background: var(--bg-elevated);
+            border-bottom: 1px solid var(--border-muted);
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .preview-header svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+        }
+
+        .preview-content {
+            padding: 12px 14px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .preview-stat {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--bg-surface);
+            border-radius: 6px;
+        }
+
+        .preview-stat-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .preview-stat-icon.targets {
+            background: var(--blue-muted);
+        }
+
+        .preview-stat-icon.targets svg {
+            stroke: var(--blue);
+        }
+
+        .preview-stat-icon.groups {
+            background: var(--purple-muted);
+        }
+
+        .preview-stat-icon.groups svg {
+            stroke: var(--purple);
+        }
+
+        .preview-stat-icon.history {
+            background: var(--yellow-muted);
+        }
+
+        .preview-stat-icon.history svg {
+            stroke: var(--yellow);
+        }
+
+        .preview-stat-icon.stats {
+            background: var(--cyan-muted);
+        }
+
+        .preview-stat-icon.stats svg {
+            stroke: var(--cyan);
+        }
+
+        .preview-stat-icon svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .preview-stat-info {
+            flex: 1;
+        }
+
+        .preview-stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .preview-stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Progress Animation */
+        .progress-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(13, 17, 23, 0.95);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+            z-index: 100;
+        }
+
+        .progress-overlay.visible {
+            display: flex;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .progress-spinner {
+            width: 64px;
+            height: 64px;
+            position: relative;
+        }
+
+        .progress-spinner-ring {
+            position: absolute;
+            inset: 0;
+            border: 3px solid var(--border-default);
+            border-top-color: var(--blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .progress-spinner-ring.export {
+            border-top-color: var(--blue);
+        }
+
+        .progress-spinner-ring.import {
+            border-top-color: var(--green);
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .progress-icon {
+            position: absolute;
+            inset: 8px;
+            background: var(--bg-surface);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .progress-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .progress-icon.export svg {
+            stroke: var(--blue);
+        }
+
+        .progress-icon.import svg {
+            stroke: var(--green);
+        }
+
+        .progress-text {
+            font-size: 14px;
+            color: var(--text-primary);
+            text-align: center;
+        }
+
+        .progress-subtext {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Success/Error States */
+        .result-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(13, 17, 23, 0.95);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 100;
+        }
+
+        .result-overlay.visible {
+            display: flex;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .result-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: successPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .result-icon.success {
+            background: var(--green-muted);
+        }
+
+        .result-icon.error {
+            background: var(--red-muted);
+        }
+
+        .result-icon svg {
+            width: 32px;
+            height: 32px;
+        }
+
+        .result-icon.success svg {
+            stroke: var(--green);
+        }
+
+        .result-icon.error svg {
+            stroke: var(--red);
+        }
+
+        @keyframes successPop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .result-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .result-subtext {
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-align: center;
+            max-width: 300px;
+        }
+
+        .result-btn {
+            margin-top: 8px;
+            padding: 10px 24px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-default);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .result-btn:hover {
+            background: var(--bg-overlay);
+            border-color: var(--border-default);
+        }
+
+        /* Footer */
+        .footer {
+            padding: 16px 24px;
+            background: var(--bg-surface);
+            border-top: 1px solid var(--border-default);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .footer-info {
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .footer-info svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+        }
+
+        .footer-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid transparent;
+        }
+
+        .btn svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+        }
+
+        .btn-secondary {
+            background: var(--bg-overlay);
+            border-color: var(--border-default);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-elevated);
+        }
+
+        .btn-primary {
+            background: var(--blue);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #4a9eff;
+        }
+
+        .btn-success {
+            background: var(--green);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #46c55e;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Conflict Resolution */
+        .conflict-options {
+            margin-top: 16px;
+            padding: 14px;
+            background: var(--bg-overlay);
+            border: 1px solid var(--border-muted);
+            border-radius: 8px;
+        }
+
+        .conflict-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .conflict-title svg {
+            width: 14px;
+            height: 14px;
+            stroke: var(--yellow);
+        }
+
+        .conflict-radios {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .conflict-radio {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-muted);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .conflict-radio:hover {
+            border-color: var(--border-default);
+        }
+
+        .conflict-radio.selected {
+            border-color: var(--green);
+            background: var(--green-muted);
+        }
+
+        .conflict-radio-dot {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-default);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .conflict-radio.selected .conflict-radio-dot {
+            border-color: var(--green);
+        }
+
+        .conflict-radio.selected .conflict-radio-dot::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--green);
+            border-radius: 50%;
+        }
+
+        .conflict-radio-text {
+            flex: 1;
+        }
+
+        .conflict-radio-label {
+            font-size: 13px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .conflict-radio-desc {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-default);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Warning Banner */
+        .warning-banner {
+            display: none;
+            padding: 12px 14px;
+            background: var(--yellow-muted);
+            border: 1px solid rgba(210, 153, 34, 0.3);
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        .warning-banner.visible {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        .warning-banner svg {
+            width: 18px;
+            height: 18px;
+            stroke: var(--yellow);
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .warning-banner-text {
+            font-size: 12px;
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        .warning-banner-text strong {
+            color: var(--yellow);
+        }
+
+        /* Hidden file input */
+        #file-input {
+            display: none;
+        }
+
+        /* Destination Selector */
+        .destination-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-muted);
+        }
+
+        .destination-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .destination-presets {
+            display: flex;
+            gap: 6px;
+        }
+
+        .preset-btn {
+            padding: 6px 12px;
+            background: var(--bg-overlay);
+            border: 1px solid var(--border-muted);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .preset-btn:hover {
+            background: var(--bg-elevated);
+            border-color: var(--border-default);
+            color: var(--text-primary);
+        }
+
+        .preset-btn.active {
+            background: var(--blue-muted);
+            border-color: var(--blue);
+            color: var(--blue);
+        }
+
+        .preset-btn svg {
+            width: 12px;
+            height: 12px;
+            stroke: currentColor;
+        }
+
+        .destination-path-box {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .destination-path-input {
+            flex: 1;
+            padding: 10px 12px;
+            background: var(--bg-overlay);
+            border: 1px solid var(--border-muted);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 12px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        .destination-path-input:focus {
+            border-color: var(--blue);
+        }
+
+        .destination-path-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .destination-path-input:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .browse-btn {
+            padding: 10px 14px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-default);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .browse-btn:hover {
+            background: var(--bg-overlay);
+            border-color: var(--blue);
+        }
+
+        .browse-btn svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+        }
+
+        .filename-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .filename-input {
+            flex: 1;
+            padding: 10px 12px;
+            background: var(--bg-overlay);
+            border: 1px solid var(--border-muted);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 12px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        .filename-input:focus {
+            border-color: var(--blue);
+        }
+
+        .filename-ext {
+            padding: 10px 12px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-muted);
+            border-radius: 6px;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .full-path-preview {
+            margin-top: 10px;
+            padding: 10px 12px;
+            background: var(--bg-base);
+            border: 1px solid var(--border-muted);
+            border-radius: 6px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-family: 'Consolas', 'Monaco', monospace;
+            word-break: break-all;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .full-path-preview svg {
+            width: 14px;
+            height: 14px;
+            stroke: var(--text-muted);
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .full-path-preview .path-text {
+            flex: 1;
+        }
+
+        .full-path-preview .path-filename {
+            color: var(--blue);
+        }
+
+        /* Quick Export Button */
+        .quick-export-section {
+            margin-top: 16px;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--blue-muted), var(--cyan-muted));
+            border: 1px solid rgba(88, 166, 255, 0.2);
+            border-radius: 8px;
+        }
+
+        .quick-export-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .quick-export-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(88, 166, 255, 0.2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .quick-export-icon svg {
+            width: 16px;
+            height: 16px;
+            stroke: var(--blue);
+        }
+
+        .quick-export-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .quick-export-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .export-btn-large {
+            width: 100%;
+            padding: 12px 20px;
+            background: var(--blue);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.15s;
+        }
+
+        .export-btn-large:hover {
+            background: #4a9eff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
+        }
+
+        .export-btn-large:active {
+            transform: translateY(0);
+        }
+
+        .export-btn-large svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+        }
+
+        .export-btn-large .btn-subtitle {
+            font-size: 11px;
+            font-weight: 400;
+            opacity: 0.8;
+            margin-left: auto;
+        }
+
+        /* Save options toggle */
+        .save-options-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .toggle-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            background: var(--bg-overlay);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle-switch.active {
+            background: var(--blue);
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+
+        .toggle-switch.active::after {
+            transform: translateX(16px);
+        }
+
+        /* Recent backups */
+        .recent-backups {
+            margin-top: 12px;
+        }
+
+        .recent-backups-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .recent-backups-header svg {
+            width: 12px;
+            height: 12px;
+            stroke: currentColor;
+        }
+
+        .recent-backup-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            background: var(--bg-overlay);
+            border: 1px solid var(--border-muted);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .recent-backup-item:hover {
+            border-color: var(--border-default);
+            background: var(--bg-elevated);
+        }
+
+        .recent-backup-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .recent-backup-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--bg-elevated);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .recent-backup-icon svg {
+            width: 14px;
+            height: 14px;
+            stroke: var(--text-muted);
+        }
+
+        .recent-backup-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .recent-backup-name {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .recent-backup-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .recent-backup-action {
+            padding: 4px 8px;
+            background: transparent;
+            border: 1px solid var(--border-muted);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .recent-backup-action:hover {
+            background: var(--blue-muted);
+            border-color: var(--blue);
+            color: var(--blue);
+        }
+
+        .no-recent-backups {
+            padding: 16px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dialog">
+        <div class="titlebar">
+            <span class="titlebar-title">Backup & Restore</span>
+            <button class="titlebar-close" id="close-btn">
+                <svg viewBox="0 0 10 10" fill="none">
+                    <path d="M1 1L9 9M9 1L1 9" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="header">
+            <div class="header-icon export-mode" id="header-icon">
+                <svg id="header-icon-export" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <svg id="header-icon-import" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+            </div>
+            <div class="header-text">
+                <h1 id="header-title">Export Backup</h1>
+                <p id="header-subtitle">Save your targets and settings to a file</p>
+            </div>
+        </div>
+
+        <div class="mode-switcher">
+            <button class="mode-btn export active" id="mode-export">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                Export
+            </button>
+            <button class="mode-btn restore" id="mode-restore">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Restore
+            </button>
+        </div>
+
+        <div class="content" id="content">
+            <!-- Export View -->
+            <div class="view active" id="view-export">
+                <div class="section-title">Select data to export</div>
+
+                <div class="checkbox-group">
+                    <div class="checkbox-item checked" data-key="targets">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Targets</div>
+                            <div class="checkbox-desc">All your tracked targets with notes and favorites</div>
+                        </div>
+                        <span class="checkbox-count" id="count-targets">0</span>
+                    </div>
+
+                    <div class="checkbox-item checked" data-key="groups">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Groups</div>
+                            <div class="checkbox-desc">Custom groups and color settings</div>
+                        </div>
+                        <span class="checkbox-count" id="count-groups">0</span>
+                    </div>
+
+                    <div class="checkbox-item checked" data-key="attackHistory">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Attack History</div>
+                            <div class="checkbox-desc">Record of all logged attacks</div>
+                        </div>
+                        <span class="checkbox-count" id="count-history">0</span>
+                    </div>
+
+                    <div class="checkbox-item checked" data-key="statistics">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Statistics</div>
+                            <div class="checkbox-desc">Cumulative app usage statistics</div>
+                        </div>
+                        <span class="checkbox-count" id="count-stats">-</span>
+                    </div>
+
+                    <div class="checkbox-item" data-key="settings">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Settings</div>
+                            <div class="checkbox-desc">App preferences (excludes API keys)</div>
+                        </div>
+                        <span class="checkbox-count">-</span>
+                    </div>
+                </div>
+
+                <div class="preview-panel">
+                    <div class="preview-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                        Export Preview
+                    </div>
+                    <div class="preview-content">
+                        <div class="preview-stat">
+                            <div class="preview-stat-icon targets">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <circle cx="12" cy="12" r="6"/>
+                                    <circle cx="12" cy="12" r="2"/>
+                                </svg>
+                            </div>
+                            <div class="preview-stat-info">
+                                <div class="preview-stat-value" id="preview-targets">0</div>
+                                <div class="preview-stat-label">Targets</div>
+                            </div>
+                        </div>
+                        <div class="preview-stat">
+                            <div class="preview-stat-icon groups">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                </svg>
+                            </div>
+                            <div class="preview-stat-info">
+                                <div class="preview-stat-value" id="preview-groups">0</div>
+                                <div class="preview-stat-label">Groups</div>
+                            </div>
+                        </div>
+                        <div class="preview-stat">
+                            <div class="preview-stat-icon history">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                            </div>
+                            <div class="preview-stat-info">
+                                <div class="preview-stat-value" id="preview-history">0</div>
+                                <div class="preview-stat-label">Attack Records</div>
+                            </div>
+                        </div>
+                        <div class="preview-stat">
+                            <div class="preview-stat-icon stats">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="18" y1="20" x2="18" y2="10"/>
+                                    <line x1="12" y1="20" x2="12" y2="4"/>
+                                    <line x1="6" y1="20" x2="6" y2="14"/>
+                                </svg>
+                            </div>
+                            <div class="preview-stat-info">
+                                <div class="preview-stat-value" id="preview-stats">-</div>
+                                <div class="preview-stat-label">Statistics</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Destination Section -->
+                <div class="destination-section">
+                    <div class="destination-header">
+                        <div class="section-title" style="margin-bottom: 0;">Save Location</div>
+                        <div class="destination-presets">
+                            <button class="preset-btn active" data-preset="default">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                </svg>
+                                App Data
+                            </button>
+                            <button class="preset-btn" data-preset="desktop">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                                    <line x1="8" y1="21" x2="16" y2="21"/>
+                                    <line x1="12" y1="17" x2="12" y2="21"/>
+                                </svg>
+                                Desktop
+                            </button>
+                            <button class="preset-btn" data-preset="custom">
+                                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="3"/>
+                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                                </svg>
+                                Custom
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="destination-path-box">
+                        <input type="text" class="destination-path-input" id="destination-path" placeholder="Select a folder..." readonly>
+                        <button class="browse-btn" id="browse-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            Browse
+                        </button>
+                    </div>
+
+                    <div class="filename-row">
+                        <input type="text" class="filename-input" id="filename-input" placeholder="backup-name" value="">
+                        <span class="filename-ext">.json</span>
+                    </div>
+
+                    <div class="full-path-preview" id="full-path-preview">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                        <span class="path-text">
+                            <span class="path-dir" id="path-dir">Loading...</span><span class="path-filename" id="path-filename"></span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Quick Export Button -->
+                <div class="quick-export-section">
+                    <button class="export-btn-large" id="btn-export-now">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        Export Backup Now
+                    </button>
+
+                    <div class="save-options-toggle">
+                        <label class="toggle-label">
+                            <div class="toggle-switch active" id="toggle-open-folder"></div>
+                            Open folder after export
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Recent Backups -->
+                <div class="recent-backups" id="recent-backups-section">
+                    <div class="recent-backups-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        Recent Backups
+                    </div>
+                    <div id="recent-backups-list">
+                        <div class="no-recent-backups">No recent backups found</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Import View -->
+            <div class="view" id="view-import">
+                <input type="file" id="file-input" accept=".json">
+
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-zone-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                    </div>
+                    <div class="drop-zone-text">Drop backup file here or click to browse</div>
+                    <div class="drop-zone-hint">Supports .json backup files</div>
+                </div>
+
+                <div class="file-info" id="file-info">
+                    <div class="file-info-header">
+                        <div class="file-info-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                        </div>
+                        <span class="file-info-name" id="file-name">backup.json</span>
+                        <button class="file-info-remove" id="file-remove">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="file-info-meta">
+                        <div class="file-info-meta-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                                <line x1="16" y1="2" x2="16" y2="6"/>
+                                <line x1="8" y1="2" x2="8" y2="6"/>
+                                <line x1="3" y1="10" x2="21" y2="10"/>
+                            </svg>
+                            <span id="file-date">-</span>
+                        </div>
+                        <div class="file-info-meta-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                                <polyline points="13 2 13 9 20 9"/>
+                            </svg>
+                            <span id="file-size">-</span>
+                        </div>
+                        <div class="file-info-meta-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <circle cx="12" cy="12" r="6"/>
+                                <circle cx="12" cy="12" r="2"/>
+                            </svg>
+                            <span id="file-targets">0 targets</span>
+                        </div>
+                        <div class="file-info-meta-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            <span id="file-groups">0 groups</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="warning-banner" id="warning-banner">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    <div class="warning-banner-text">
+                        <strong>Existing data detected.</strong> Choose how to handle conflicts when importing data that already exists in your current setup.
+                    </div>
+                </div>
+
+                <div class="section-title" id="import-section-title" style="display: none;">Select data to import</div>
+
+                <div class="checkbox-group" id="import-checkboxes" style="display: none;">
+                    <div class="checkbox-item import-mode checked" data-key="targets">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Targets</div>
+                            <div class="checkbox-desc">Tracked targets with notes and favorites</div>
+                        </div>
+                        <span class="checkbox-count" id="import-count-targets">0</span>
+                    </div>
+
+                    <div class="checkbox-item import-mode checked" data-key="groups">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Groups</div>
+                            <div class="checkbox-desc">Custom groups and color settings</div>
+                        </div>
+                        <span class="checkbox-count" id="import-count-groups">0</span>
+                    </div>
+
+                    <div class="checkbox-item import-mode checked" data-key="attackHistory">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Attack History</div>
+                            <div class="checkbox-desc">Record of all logged attacks</div>
+                        </div>
+                        <span class="checkbox-count" id="import-count-history">0</span>
+                    </div>
+
+                    <div class="checkbox-item import-mode checked" data-key="statistics">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Statistics</div>
+                            <div class="checkbox-desc">App usage statistics</div>
+                        </div>
+                        <span class="checkbox-count" id="import-count-stats">-</span>
+                    </div>
+
+                    <div class="checkbox-item import-mode" data-key="settings">
+                        <div class="checkbox-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="checkbox-content">
+                            <div class="checkbox-label">Settings</div>
+                            <div class="checkbox-desc">App preferences</div>
+                        </div>
+                        <span class="checkbox-count">-</span>
+                    </div>
+                </div>
+
+                <div class="conflict-options" id="conflict-options" style="display: none;">
+                    <div class="conflict-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="12"/>
+                            <line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        Conflict Resolution
+                    </div>
+                    <div class="conflict-radios">
+                        <div class="conflict-radio selected" data-value="merge">
+                            <div class="conflict-radio-dot"></div>
+                            <div class="conflict-radio-text">
+                                <div class="conflict-radio-label">Merge (Recommended)</div>
+                                <div class="conflict-radio-desc">Add new items, update existing ones with backup data</div>
+                            </div>
+                        </div>
+                        <div class="conflict-radio" data-value="skip">
+                            <div class="conflict-radio-dot"></div>
+                            <div class="conflict-radio-text">
+                                <div class="conflict-radio-label">Skip Existing</div>
+                                <div class="conflict-radio-desc">Only import items that don't already exist</div>
+                            </div>
+                        </div>
+                        <div class="conflict-radio" data-value="replace">
+                            <div class="conflict-radio-dot"></div>
+                            <div class="conflict-radio-text">
+                                <div class="conflict-radio-label">Replace All</div>
+                                <div class="conflict-radio-desc">Delete existing data and import everything from backup</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progress Overlay -->
+            <div class="progress-overlay" id="progress-overlay">
+                <div class="progress-spinner">
+                    <div class="progress-spinner-ring export" id="progress-ring"></div>
+                    <div class="progress-icon export" id="progress-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="progress-text" id="progress-text">Exporting data...</div>
+                <div class="progress-subtext" id="progress-subtext">Please wait</div>
+            </div>
+
+            <!-- Result Overlay -->
+            <div class="result-overlay" id="result-overlay">
+                <div class="result-icon success" id="result-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                </div>
+                <div class="result-text" id="result-text">Export Complete!</div>
+                <div class="result-subtext" id="result-subtext">Your backup has been saved successfully.</div>
+                <button class="result-btn" id="result-btn">Done</button>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="footer-info" id="footer-info">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="16" x2="12" y2="12"/>
+                    <line x1="12" y1="8" x2="12.01" y2="8"/>
+                </svg>
+                <span id="footer-text">Backups exclude sensitive data like API keys</span>
+            </div>
+            <div class="footer-actions">
+                <button class="btn btn-secondary" id="btn-cancel">Cancel</button>
+                <button class="btn btn-primary" id="btn-action">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Export Backup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Use the secure API exposed by preload
+        const api = window.backupAPI;
+
+        // State
+        let currentMode = 'export';
+        let exportSelections = {
+            targets: true,
+            groups: true,
+            attackHistory: true,
+            statistics: true,
+            settings: false
+        };
+        let importSelections = {
+            targets: true,
+            groups: true,
+            attackHistory: true,
+            statistics: true,
+            settings: false
+        };
+        let conflictResolution = 'merge';
+        let loadedBackupData = null;
+        let currentData = null;
+
+        // Destination state
+        let destinationPreset = 'default';
+        let destinationPath = '';
+        let customPath = '';
+        let defaultBackupPath = '';
+        let desktopPath = '';
+        let openFolderAfterExport = true;
+        let recentBackups = [];
+
+        // DOM Elements
+        const elements = {
+            closeBtn: document.getElementById('close-btn'),
+            headerIcon: document.getElementById('header-icon'),
+            headerIconExport: document.getElementById('header-icon-export'),
+            headerIconImport: document.getElementById('header-icon-import'),
+            headerTitle: document.getElementById('header-title'),
+            headerSubtitle: document.getElementById('header-subtitle'),
+            modeExport: document.getElementById('mode-export'),
+            modeRestore: document.getElementById('mode-restore'),
+            viewExport: document.getElementById('view-export'),
+            viewImport: document.getElementById('view-import'),
+            dropZone: document.getElementById('drop-zone'),
+            fileInput: document.getElementById('file-input'),
+            fileInfo: document.getElementById('file-info'),
+            fileName: document.getElementById('file-name'),
+            fileDate: document.getElementById('file-date'),
+            fileSize: document.getElementById('file-size'),
+            fileTargets: document.getElementById('file-targets'),
+            fileGroups: document.getElementById('file-groups'),
+            fileRemove: document.getElementById('file-remove'),
+            warningBanner: document.getElementById('warning-banner'),
+            importSectionTitle: document.getElementById('import-section-title'),
+            importCheckboxes: document.getElementById('import-checkboxes'),
+            conflictOptions: document.getElementById('conflict-options'),
+            progressOverlay: document.getElementById('progress-overlay'),
+            progressRing: document.getElementById('progress-ring'),
+            progressIcon: document.getElementById('progress-icon'),
+            progressText: document.getElementById('progress-text'),
+            progressSubtext: document.getElementById('progress-subtext'),
+            resultOverlay: document.getElementById('result-overlay'),
+            resultIcon: document.getElementById('result-icon'),
+            resultText: document.getElementById('result-text'),
+            resultSubtext: document.getElementById('result-subtext'),
+            resultBtn: document.getElementById('result-btn'),
+            footerText: document.getElementById('footer-text'),
+            btnCancel: document.getElementById('btn-cancel'),
+            btnAction: document.getElementById('btn-action'),
+            // Destination elements
+            destinationPath: document.getElementById('destination-path'),
+            browseBtn: document.getElementById('browse-btn'),
+            filenameInput: document.getElementById('filename-input'),
+            pathDir: document.getElementById('path-dir'),
+            pathFilename: document.getElementById('path-filename'),
+            btnExportNow: document.getElementById('btn-export-now'),
+            toggleOpenFolder: document.getElementById('toggle-open-folder'),
+            recentBackupsList: document.getElementById('recent-backups-list')
+        };
+
+        // Initialize
+        async function init() {
+            await loadCurrentData();
+            await loadDestinationPaths();
+            await loadRecentBackups();
+            setupEventListeners();
+            updateExportPreview();
+            updatePathPreview();
+            generateDefaultFilename();
+        }
+
+        async function loadDestinationPaths() {
+            try {
+                const paths = await api.getBackupPaths();
+                defaultBackupPath = paths.default || '';
+                desktopPath = paths.desktop || '';
+                destinationPath = defaultBackupPath;
+                elements.destinationPath.value = destinationPath;
+            } catch (error) {
+                console.error('Failed to load destination paths:', error);
+            }
+        }
+
+        async function loadRecentBackups() {
+            try {
+                recentBackups = await api.listBackups();
+                renderRecentBackups();
+            } catch (error) {
+                console.error('Failed to load recent backups:', error);
+            }
+        }
+
+        function renderRecentBackups() {
+            if (!elements.recentBackupsList) return;
+
+            if (!recentBackups || recentBackups.length === 0) {
+                elements.recentBackupsList.innerHTML = '<div class="no-recent-backups">No recent backups found</div>';
+                return;
+            }
+
+            const html = recentBackups.slice(0, 3).map(backup => {
+                const date = new Date(backup.created);
+                const timeAgo = formatTimeAgo(date);
+                const size = formatFileSize(backup.size);
+
+                return `
+                    <div class="recent-backup-item" data-path="${backup.path}">
+                        <div class="recent-backup-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                        </div>
+                        <div class="recent-backup-info">
+                            <div class="recent-backup-name">${backup.name}</div>
+                            <div class="recent-backup-meta">${timeAgo} • ${size}</div>
+                        </div>
+                        <button class="recent-backup-action" data-action="reveal" data-path="${backup.path}">Show</button>
+                    </div>
+                `;
+            }).join('');
+
+            elements.recentBackupsList.innerHTML = html;
+
+            // Add click handlers for recent backups
+            elements.recentBackupsList.querySelectorAll('.recent-backup-action').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const path = btn.dataset.path;
+                    await api.revealInFolder(path);
+                });
+            });
+        }
+
+        function formatTimeAgo(date) {
+            const seconds = Math.floor((new Date() - date) / 1000);
+            if (seconds < 60) return 'Just now';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours}h ago`;
+            const days = Math.floor(hours / 24);
+            if (days < 7) return `${days}d ago`;
+            return date.toLocaleDateString();
+        }
+
+        function generateDefaultFilename() {
+            const now = new Date();
+            const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            elements.filenameInput.value = `torn-tracker-backup-${timestamp}`;
+            updatePathPreview();
+        }
+
+        function updatePathPreview() {
+            const dir = destinationPath || 'No destination selected';
+            const filename = (elements.filenameInput.value || 'backup') + '.json';
+            elements.pathDir.textContent = dir + (dir.endsWith('\\') || dir.endsWith('/') ? '' : '\\');
+            elements.pathFilename.textContent = filename;
+        }
+
+        async function loadCurrentData() {
+            try {
+                currentData = await api.getCurrentData();
+                updateExportCounts();
+            } catch (error) {
+                console.error('Failed to load current data:', error);
+            }
+        }
+
+        function updateExportCounts() {
+            if (!currentData) return;
+
+            document.getElementById('count-targets').textContent = currentData.targets?.length || 0;
+            document.getElementById('count-groups').textContent = currentData.groups?.length || 0;
+            document.getElementById('count-history').textContent = currentData.attackHistory?.length || 0;
+
+            const statsCount = currentData.statistics ?
+                Object.values(currentData.statistics).filter(v => v > 0).length : 0;
+            document.getElementById('count-stats').textContent = statsCount > 0 ? statsCount + ' metrics' : '-';
+        }
+
+        function updateExportPreview() {
+            if (!currentData) return;
+
+            document.getElementById('preview-targets').textContent =
+                exportSelections.targets ? (currentData.targets?.length || 0) : '-';
+            document.getElementById('preview-groups').textContent =
+                exportSelections.groups ? (currentData.groups?.length || 0) : '-';
+            document.getElementById('preview-history').textContent =
+                exportSelections.attackHistory ? (currentData.attackHistory?.length || 0) : '-';
+            document.getElementById('preview-stats').textContent =
+                exportSelections.statistics ? 'Included' : '-';
+        }
+
+        function setupEventListeners() {
+            // Close button
+            elements.closeBtn.addEventListener('click', () => {
+                api.closeDialog();
+            });
+
+            // Cancel button
+            elements.btnCancel.addEventListener('click', () => {
+                api.closeDialog();
+            });
+
+            // Mode switching
+            elements.modeExport.addEventListener('click', () => switchMode('export'));
+            elements.modeRestore.addEventListener('click', () => switchMode('import'));
+
+            // Export checkboxes
+            document.querySelectorAll('#view-export .checkbox-item').forEach(item => {
+                item.addEventListener('click', () => toggleExportCheckbox(item));
+            });
+
+            // Import checkboxes
+            document.querySelectorAll('#view-import .checkbox-item').forEach(item => {
+                item.addEventListener('click', () => toggleImportCheckbox(item));
+            });
+
+            // Conflict resolution radios
+            document.querySelectorAll('.conflict-radio').forEach(radio => {
+                radio.addEventListener('click', () => selectConflictOption(radio));
+            });
+
+            // Drop zone
+            elements.dropZone.addEventListener('click', () => elements.fileInput.click());
+            elements.dropZone.addEventListener('dragover', handleDragOver);
+            elements.dropZone.addEventListener('dragleave', handleDragLeave);
+            elements.dropZone.addEventListener('drop', handleDrop);
+            elements.fileInput.addEventListener('change', handleFileSelect);
+            elements.fileRemove.addEventListener('click', removeFile);
+
+            // Action button
+            elements.btnAction.addEventListener('click', handleAction);
+
+            // Destination preset buttons
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.addEventListener('click', () => selectPreset(btn.dataset.preset));
+            });
+
+            // Browse button
+            elements.browseBtn.addEventListener('click', handleBrowse);
+
+            // Filename input
+            elements.filenameInput.addEventListener('input', updatePathPreview);
+
+            // Export Now button
+            elements.btnExportNow.addEventListener('click', handleExportToPath);
+
+            // Toggle open folder
+            elements.toggleOpenFolder.addEventListener('click', () => {
+                openFolderAfterExport = !openFolderAfterExport;
+                elements.toggleOpenFolder.classList.toggle('active', openFolderAfterExport);
+            });
+
+            // Result button
+            elements.resultBtn.addEventListener('click', () => {
+                elements.resultOverlay.classList.remove('visible');
+                if (currentMode === 'import' && loadedBackupData) {
+                    // Reset import view after successful import
+                    removeFile();
+                }
+            });
+        }
+
+        function switchMode(mode) {
+            currentMode = mode;
+
+            // Update tabs
+            elements.modeExport.classList.toggle('active', mode === 'export');
+            elements.modeRestore.classList.toggle('active', mode === 'import');
+
+            // Update header
+            if (mode === 'export') {
+                elements.headerIcon.classList.remove('import-mode');
+                elements.headerIcon.classList.add('export-mode');
+                elements.headerIconExport.style.display = 'block';
+                elements.headerIconImport.style.display = 'none';
+                elements.headerTitle.textContent = 'Export Backup';
+                elements.headerSubtitle.textContent = 'Save your targets and settings to a file';
+                elements.footerText.textContent = 'Backups exclude sensitive data like API keys';
+                elements.btnAction.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Export Backup
+                `;
+                elements.btnAction.classList.remove('btn-success');
+                elements.btnAction.classList.add('btn-primary');
+                elements.btnAction.disabled = false;
+            } else {
+                elements.headerIcon.classList.remove('export-mode');
+                elements.headerIcon.classList.add('import-mode');
+                elements.headerIconExport.style.display = 'none';
+                elements.headerIconImport.style.display = 'block';
+                elements.headerTitle.textContent = 'Restore Backup';
+                elements.headerSubtitle.textContent = 'Import your data from a backup file';
+                elements.footerText.textContent = 'Your current data will be preserved based on conflict settings';
+                elements.btnAction.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Restore Backup
+                `;
+                elements.btnAction.classList.remove('btn-primary');
+                elements.btnAction.classList.add('btn-success');
+                elements.btnAction.disabled = !loadedBackupData;
+            }
+
+            // Update views
+            elements.viewExport.classList.toggle('active', mode === 'export');
+            elements.viewImport.classList.toggle('active', mode === 'import');
+        }
+
+        function toggleExportCheckbox(item) {
+            const key = item.dataset.key;
+            item.classList.toggle('checked');
+            exportSelections[key] = item.classList.contains('checked');
+            updateExportPreview();
+        }
+
+        function toggleImportCheckbox(item) {
+            const key = item.dataset.key;
+            item.classList.toggle('checked');
+            importSelections[key] = item.classList.contains('checked');
+        }
+
+        function selectConflictOption(radio) {
+            document.querySelectorAll('.conflict-radio').forEach(r => r.classList.remove('selected'));
+            radio.classList.add('selected');
+            conflictResolution = radio.dataset.value;
+        }
+
+        function selectPreset(preset) {
+            destinationPreset = preset;
+
+            // Update button states
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.preset === preset);
+            });
+
+            // Update path based on preset
+            switch (preset) {
+                case 'default':
+                    destinationPath = defaultBackupPath;
+                    elements.destinationPath.value = destinationPath;
+                    elements.destinationPath.disabled = true;
+                    break;
+                case 'desktop':
+                    destinationPath = desktopPath;
+                    elements.destinationPath.value = destinationPath;
+                    elements.destinationPath.disabled = true;
+                    break;
+                case 'custom':
+                    destinationPath = customPath || '';
+                    elements.destinationPath.value = customPath || '';
+                    elements.destinationPath.disabled = false;
+                    if (!customPath) {
+                        handleBrowse();
+                    }
+                    break;
+            }
+
+            updatePathPreview();
+        }
+
+        async function handleBrowse() {
+            try {
+                const result = await api.chooseDirectory();
+                if (result && result.path) {
+                    customPath = result.path;
+                    destinationPath = result.path;
+                    elements.destinationPath.value = result.path;
+
+                    // Switch to custom preset if not already
+                    if (destinationPreset !== 'custom') {
+                        selectPreset('custom');
+                    }
+
+                    updatePathPreview();
+                }
+            } catch (error) {
+                console.error('Failed to choose directory:', error);
+            }
+        }
+
+        async function handleExportToPath() {
+            if (!destinationPath) {
+                showError('No Destination', 'Please select a destination folder');
+                return;
+            }
+
+            const filename = (elements.filenameInput.value || 'backup').trim();
+            if (!filename) {
+                showError('No Filename', 'Please enter a filename');
+                return;
+            }
+
+            showProgress('export', 'Creating backup...', 'Gathering selected data');
+
+            try {
+                // Build export data
+                const exportData = {
+                    version: '2.0',
+                    timestamp: new Date().toISOString(),
+                    appVersion: await api.getAppVersion()
+                };
+
+                if (exportSelections.targets) {
+                    exportData.targets = currentData.targets || [];
+                }
+                if (exportSelections.groups) {
+                    exportData.groups = currentData.groups || [];
+                }
+                if (exportSelections.attackHistory) {
+                    exportData.attackHistory = currentData.attackHistory || [];
+                }
+                if (exportSelections.statistics) {
+                    exportData.statistics = currentData.statistics || {};
+                }
+                if (exportSelections.settings) {
+                    const settings = await api.getSettings();
+                    const { apiKey, tornStatsApiKey, ...safeSettings } = settings;
+                    exportData.settings = safeSettings;
+                }
+
+                updateProgress('Saving file...', destinationPath);
+
+                // Export to the specified path
+                const result = await api.exportToPath({
+                    data: exportData,
+                    directory: destinationPath,
+                    filename: filename + '.json',
+                    openFolder: openFolderAfterExport
+                });
+
+                if (result.success) {
+                    showSuccess('Backup Created!', `Saved to ${result.filename}`);
+                    // Refresh recent backups list
+                    await loadRecentBackups();
+                    // Generate new filename for next backup
+                    generateDefaultFilename();
+                } else {
+                    showError('Export Failed', result.error || 'Unknown error occurred');
+                }
+
+            } catch (error) {
+                console.error('Export to path failed:', error);
+                showError('Export Failed', error.message);
+            }
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            elements.dropZone.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            elements.dropZone.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            elements.dropZone.classList.remove('dragover');
+
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        async function processFile(file) {
+            if (!file.name.endsWith('.json')) {
+                showError('Invalid File', 'Please select a valid .json backup file');
+                return;
+            }
+
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+
+                // Validate backup structure
+                if (!data.version || (!data.targets && !data.groups && !data.attackHistory)) {
+                    showError('Invalid Backup', 'This file does not appear to be a valid backup');
+                    return;
+                }
+
+                loadedBackupData = data;
+
+                // Update UI
+                elements.dropZone.classList.add('has-file');
+                elements.dropZone.querySelector('.drop-zone-text').textContent = 'Backup file loaded';
+                elements.dropZone.querySelector('.drop-zone-hint').textContent = file.name;
+
+                // Show file info
+                elements.fileInfo.classList.add('visible');
+                elements.fileName.textContent = file.name;
+                elements.fileDate.textContent = data.timestamp ?
+                    new Date(data.timestamp).toLocaleDateString() : 'Unknown date';
+                elements.fileSize.textContent = formatFileSize(file.size);
+                elements.fileTargets.textContent = `${data.targets?.length || 0} targets`;
+                elements.fileGroups.textContent = `${data.groups?.length || 0} groups`;
+
+                // Update import counts
+                document.getElementById('import-count-targets').textContent = data.targets?.length || 0;
+                document.getElementById('import-count-groups').textContent = data.groups?.length || 0;
+                document.getElementById('import-count-history').textContent = data.attackHistory?.length || 0;
+                document.getElementById('import-count-stats').textContent = data.statistics ? 'Included' : '-';
+
+                // Show/hide elements based on what's in the backup
+                const hasData = data.targets?.length > 0 || data.groups?.length > 0 ||
+                               data.attackHistory?.length > 0 || data.statistics;
+
+                if (hasData) {
+                    elements.importSectionTitle.style.display = 'flex';
+                    elements.importCheckboxes.style.display = 'flex';
+
+                    // Check for conflicts
+                    const hasConflicts = (currentData?.targets?.length > 0 && data.targets?.length > 0) ||
+                                        (currentData?.groups?.length > 0 && data.groups?.length > 0);
+
+                    if (hasConflicts) {
+                        elements.warningBanner.classList.add('visible');
+                        elements.conflictOptions.style.display = 'block';
+                    }
+                }
+
+                elements.btnAction.disabled = false;
+
+            } catch (error) {
+                console.error('Failed to parse backup file:', error);
+                showError('Parse Error', 'Failed to read the backup file. It may be corrupted.');
+            }
+        }
+
+        function removeFile() {
+            loadedBackupData = null;
+            elements.fileInput.value = '';
+            elements.dropZone.classList.remove('has-file');
+            elements.dropZone.querySelector('.drop-zone-text').textContent = 'Drop backup file here or click to browse';
+            elements.dropZone.querySelector('.drop-zone-hint').textContent = 'Supports .json backup files';
+            elements.fileInfo.classList.remove('visible');
+            elements.warningBanner.classList.remove('visible');
+            elements.importSectionTitle.style.display = 'none';
+            elements.importCheckboxes.style.display = 'none';
+            elements.conflictOptions.style.display = 'none';
+            elements.btnAction.disabled = true;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        async function handleAction() {
+            if (currentMode === 'export') {
+                await performExport();
+            } else {
+                await performImport();
+            }
+        }
+
+        async function performExport() {
+            showProgress('export', 'Preparing export...', 'Gathering selected data');
+
+            try {
+                // Build export data
+                const exportData = {
+                    version: '2.0',
+                    timestamp: new Date().toISOString(),
+                    appVersion: await api.getAppVersion()
+                };
+
+                if (exportSelections.targets) {
+                    exportData.targets = currentData.targets || [];
+                }
+                if (exportSelections.groups) {
+                    exportData.groups = currentData.groups || [];
+                }
+                if (exportSelections.attackHistory) {
+                    exportData.attackHistory = currentData.attackHistory || [];
+                }
+                if (exportSelections.statistics) {
+                    exportData.statistics = currentData.statistics || {};
+                }
+                if (exportSelections.settings) {
+                    // Get settings without sensitive data
+                    const settings = await api.getSettings();
+                    const { apiKey, tornStatsApiKey, ...safeSettings } = settings;
+                    exportData.settings = safeSettings;
+                }
+
+                updateProgress('Saving file...', 'Choose a location');
+
+                // Request file save
+                const result = await api.exportBackup(exportData);
+
+                if (result.success) {
+                    showSuccess('Export Complete!', `Backup saved to ${result.filename}`);
+                } else if (result.cancelled) {
+                    hideProgress();
+                } else {
+                    showError('Export Failed', result.error || 'Unknown error occurred');
+                }
+
+            } catch (error) {
+                console.error('Export failed:', error);
+                showError('Export Failed', error.message);
+            }
+        }
+
+        async function performImport() {
+            if (!loadedBackupData) return;
+
+            showProgress('import', 'Importing backup...', 'Processing data');
+
+            try {
+                const importData = {};
+
+                if (importSelections.targets && loadedBackupData.targets) {
+                    importData.targets = loadedBackupData.targets;
+                }
+                if (importSelections.groups && loadedBackupData.groups) {
+                    importData.groups = loadedBackupData.groups;
+                }
+                if (importSelections.attackHistory && loadedBackupData.attackHistory) {
+                    importData.attackHistory = loadedBackupData.attackHistory;
+                }
+                if (importSelections.statistics && loadedBackupData.statistics) {
+                    importData.statistics = loadedBackupData.statistics;
+                }
+                if (importSelections.settings && loadedBackupData.settings) {
+                    importData.settings = loadedBackupData.settings;
+                }
+
+                updateProgress('Applying changes...', 'Please wait');
+
+                const result = await api.importBackup({
+                    data: importData,
+                    conflictResolution: conflictResolution
+                });
+
+                if (result.success) {
+                    const summary = [];
+                    if (result.imported.targets) summary.push(`${result.imported.targets} targets`);
+                    if (result.imported.groups) summary.push(`${result.imported.groups} groups`);
+                    if (result.imported.attackHistory) summary.push(`${result.imported.attackHistory} attack records`);
+                    if (result.imported.statistics) summary.push('statistics');
+                    if (result.imported.settings) summary.push('settings');
+
+                    showSuccess('Import Complete!', `Successfully imported: ${summary.join(', ')}`);
+                } else {
+                    showError('Import Failed', result.error || 'Unknown error occurred');
+                }
+
+            } catch (error) {
+                console.error('Import failed:', error);
+                showError('Import Failed', error.message);
+            }
+        }
+
+        function showProgress(type, text, subtext) {
+            elements.progressRing.className = `progress-spinner-ring ${type}`;
+            elements.progressIcon.className = `progress-icon ${type}`;
+            elements.progressIcon.innerHTML = type === 'export' ?
+                `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>` :
+                `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>`;
+            elements.progressText.textContent = text;
+            elements.progressSubtext.textContent = subtext;
+            elements.progressOverlay.classList.add('visible');
+        }
+
+        function updateProgress(text, subtext) {
+            elements.progressText.textContent = text;
+            elements.progressSubtext.textContent = subtext;
+        }
+
+        function hideProgress() {
+            elements.progressOverlay.classList.remove('visible');
+        }
+
+        function showSuccess(title, message) {
+            elements.progressOverlay.classList.remove('visible');
+            elements.resultIcon.className = 'result-icon success';
+            elements.resultIcon.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>`;
+            elements.resultText.textContent = title;
+            elements.resultSubtext.textContent = message;
+            elements.resultOverlay.classList.add('visible');
+        }
+
+        function showError(title, message) {
+            elements.progressOverlay.classList.remove('visible');
+            elements.resultIcon.className = 'result-icon error';
+            elements.resultIcon.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>`;
+            elements.resultText.textContent = title;
+            elements.resultSubtext.textContent = message;
+            elements.resultOverlay.classList.add('visible');
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (elements.resultOverlay.classList.contains('visible')) {
+                    elements.resultOverlay.classList.remove('visible');
+                } else if (elements.progressOverlay.classList.contains('visible')) {
+                    // Don't close during progress
+                } else {
+                    api.closeDialog();
+                }
+            }
+        });
+
+        // Initialize
+        init();
+    </script>
+</body>
+</html>

@@ -2772,8 +2772,9 @@ function resolveTrayIconPath() {
 // NOTIFICATIONS
 // ============================================================================
 
-function showNotification(title, body, onClick = null) {
-    if (!store.get('settings.notifications')) return;
+function showNotification(title, body, onClick = null, force = false) {
+    // force=true bypasses global notification setting (used for watched targets)
+    if (!force && !store.get('settings.notifications')) return;
     
     if (Notification.isSupported()) {
         const notification = new Notification({
@@ -3437,8 +3438,8 @@ ipcMain.on('open-profile', (event, userId) => {
 // IPC HANDLERS - NOTIFICATIONS
 // ============================================================================
 
-ipcMain.on('show-notification', (event, { title, body }) => {
-    showNotification(title, body);
+ipcMain.on('show-notification', (event, { title, body, force }) => {
+    showNotification(title, body, null, force);
 });
 
 // ============================================================================

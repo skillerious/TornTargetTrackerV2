@@ -85,7 +85,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // ========================================================================
     // NOTIFICATIONS
     // ========================================================================
-    showNotification: (title, body) => ipcRenderer.send('show-notification', { title, body }),
+    showNotification: (title, body, force = false) => ipcRenderer.send('show-notification', { title, body, force }),
 
     // ========================================================================
     // APP INFO
