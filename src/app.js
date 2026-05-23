@@ -260,6 +260,7 @@
     let pendingConfirmAction = null;
     let pendingRecentActivityAction = null;
     let bulkPreviewIds = [];
+    let bulkPreviewTimer = null;
     let avatarLoadToken = 0;
     let appInfoCache = null;
     let connectionCheckInProgress = false;
@@ -273,6 +274,7 @@
     let onboardingStepIndex = 0;
     let onboardingResumeStep = null;
     let onboardingWaitCondition = null;
+    const rendererCleanupCallbacks = new Set();
 
     const smartStatusState = {
         nextRefreshAt: null,
@@ -301,6 +303,57 @@
         highlightIndex: 0
     };
     let bountyRenderTick = 0;
+    const DEBUG_RENDERER_LOGS = false;
+    const SIDEBAR_COLLAPSE_STORAGE_KEY = 'ttt.sidebar.collapsedSections.v1';
+    const MAX_VISIBLE_TOASTS = 5;
+    const TOAST_DEDUPE_MS = 1200;
+    let lastToastSignature = { key: '', time: 0 };
+
+    function debugLog(...args) {
+        if (DEBUG_RENDERER_LOGS) {
+            console.debug(...args);
+        }
+    }
+
+    function normalizeTargetUserId(userId) {
+        if (window.InputParser?.normalizeUserId) {
+            return window.InputParser.normalizeUserId(userId);
+        }
+
+        const parsed = typeof userId === 'number'
+            ? userId
+            : /^\d+$/.test(String(userId ?? '').trim())
+                ? Number.parseInt(String(userId).trim(), 10)
+                : null;
+        return Number.isInteger(parsed) && parsed > 0 && parsed < 10000000
+            ? parsed
+            : null;
+    }
+
+    function getTornAttackUrl(userId) {
+        if (window.TORN_URLS?.getAttackUrl) {
+            return window.TORN_URLS.getAttackUrl(userId);
+        }
+
+        const id = normalizeTargetUserId(userId);
+        return id ? `https://www.torn.com/page.php?sid=attack&user2ID=${id}` : '';
+    }
+
+    function openAttackWindow(userId) {
+        const id = normalizeTargetUserId(userId);
+        if (!id) return false;
+
+        if (window.electronAPI?.openAttack) {
+            window.electronAPI.openAttack(id);
+            return true;
+        }
+
+        const url = getTornAttackUrl(id);
+        if (!url) return false;
+
+        window.open(url, '_blank', 'noreferrer');
+        return true;
+    }
 
     // ========================================================================
     // MENUBAR CONFIGURATION
@@ -341,6 +394,7 @@
                         window.electronAPI.openProfile(target.userId);
                     }
                 }, icon: 'menu-profile.svg' },
+                { id: 'copy-selected-ids', label: 'Copy Selected IDs', shortcut: 'Ctrl+Shift+C', enabled: () => getSelectedTargetIds().length > 0, action: () => copyTargetsToClipboard(getTargetsForIds(getSelectedTargetIds()), 'ids'), icon: 'menu-export.svg' },
                 { id: 'refresh-selected', label: 'Refresh Selected', shortcut: 'Ctrl+Shift+R', enabled: hasSelectedTarget, action: () => {
                     const target = getSelectedTargetSafe();
                     if (target) {
@@ -1065,6 +1119,202 @@
         document.querySelectorAll('.sidebar-section').forEach(section => {
             section.classList.add('collapsed');
         });
+        saveSidebarCollapsedSections();
+    }
+
+    function getTornProfileUrl(userId) {
+        const id = normalizeTargetUserId(userId);
+        return id ? `https://www.torn.com/profiles.php?XID=${id}` : '';
+    }
+
+    async function writeClipboard(text, successMessage = 'Copied to clipboard') {
+        if (!text) {
+            showToast('Nothing to copy', 'info');
+            return false;
+        }
+
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'fixed';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                textarea.remove();
+            }
+            showToast(successMessage, 'success');
+            return true;
+        } catch (error) {
+            console.error('Clipboard write failed', error);
+            showToast('Could not copy to clipboard', 'error');
+            return false;
+        }
+    }
+
+    function getTargetsForIds(ids = []) {
+        return Array.from(new Set(ids.map(id => parseInt(id, 10)).filter(Number.isFinite)))
+            .map(id => window.appState?.getTarget?.(id))
+            .filter(Boolean);
+    }
+
+    function getSelectedTargetIds() {
+        return window.appState?.getSelectedIds ? window.appState.getSelectedIds() : [];
+    }
+
+    function getVisibleTargetIds() {
+        return window.appState?.getFilteredTargets
+            ? window.appState.getFilteredTargets().map(t => t.userId)
+            : [];
+    }
+
+    function getCopyTargets(contextId = null) {
+        const ids = contextId === null || contextId === undefined
+            ? getSelectedTargetIds()
+            : getActionTargetIds(contextId);
+        return getTargetsForIds(ids);
+    }
+
+    async function copyTargetsToClipboard(targets, mode = 'ids') {
+        const selectedTargets = Array.isArray(targets) ? targets.filter(Boolean) : [];
+        if (!selectedTargets.length) {
+            showToast('Select targets first', 'info');
+            return false;
+        }
+
+        const lines = selectedTargets.map(target => {
+            if (mode === 'profiles') return getTornProfileUrl(target.userId);
+            if (mode === 'attacks') return getTornAttackUrl(target.userId);
+            return String(target.userId);
+        }).filter(Boolean);
+
+        const label = mode === 'profiles'
+            ? 'profile link'
+            : mode === 'attacks'
+                ? 'attack link'
+                : 'target ID';
+        const plural = lines.length === 1 ? label : `${label}s`;
+        return writeClipboard(lines.join('\n'), `Copied ${lines.length} ${plural}`);
+    }
+
+    function updateTargetsCountDisplay(visibleCount = null, selectedIds = null) {
+        if (!DOM.targetsCount || !window.appState?.getFilteredTargets) return;
+        const count = Number.isFinite(visibleCount)
+            ? visibleCount
+            : window.appState.getFilteredTargets().length;
+        const selectedCount = (selectedIds || getSelectedTargetIds()).length;
+
+        DOM.targetsCount.textContent = selectedCount > 0
+            ? `(${count}, ${selectedCount} sel)`
+            : `(${count})`;
+        DOM.targetsCount.title = selectedCount > 0
+            ? `${count} visible, ${selectedCount} selected`
+            : `${count} visible targets`;
+    }
+
+    function syncFilterControls() {
+        if (!window.appState) return;
+        const activeFilter = window.appState.activeFilter || 'all';
+        DOM.filterItems?.forEach(item => {
+            item.classList.toggle('active', item.dataset.filter === activeFilter);
+        });
+        if (DOM.searchInput) {
+            DOM.searchInput.value = window.appState.searchQuery || '';
+        }
+        if (DOM.searchClear) {
+            DOM.searchClear.style.display = window.appState.searchQuery ? 'flex' : 'none';
+        }
+        renderGroups();
+    }
+
+    function syncSortButtons() {
+        if (!DOM.sortBtns || !window.appState) return;
+        const activeSort = window.appState.sortBy || 'name';
+        const direction = window.appState.sortDirection || 'asc';
+        DOM.sortBtns.forEach(btn => {
+            const isActive = btn.dataset.sort === activeSort;
+            btn.classList.toggle('active', isActive);
+            if (isActive) {
+                btn.dataset.direction = direction;
+                const label = btn.getAttribute('data-sort-label') || btn.title.replace(/\s*\((asc|desc)\)$/i, '');
+                btn.setAttribute('data-sort-label', label);
+                btn.title = `${label} (${direction})`;
+            } else {
+                btn.removeAttribute('data-direction');
+                const label = btn.getAttribute('data-sort-label');
+                if (label) btn.title = label;
+            }
+        });
+    }
+
+    function setTargetSearchQuery(query, options = {}) {
+        const value = String(query || '');
+        const syncInput = options.syncInput !== false;
+        if (syncInput && DOM.searchInput) {
+            DOM.searchInput.value = value;
+        }
+        if (DOM.searchClear) {
+            DOM.searchClear.style.display = value ? 'flex' : 'none';
+        }
+        window.appState?.setSearchQuery?.(value);
+    }
+
+    function focusTargetSearch(selectText = true) {
+        if (window.appState?.currentView !== 'targets') {
+            switchView('targets');
+        }
+        DOM.searchInput?.focus();
+        if (selectText) {
+            DOM.searchInput?.select();
+        }
+    }
+
+    function clearTargetSearch() {
+        setTargetSearchQuery('');
+        DOM.searchInput?.focus();
+    }
+
+    function clearTargetFilters(options = {}) {
+        const keepSearch = !!options.keepSearch;
+        window.appState?.setActiveGroup?.('all');
+        window.appState?.setActiveFilter?.('all');
+        if (!keepSearch) {
+            setTargetSearchQuery('');
+        }
+        syncFilterControls();
+        renderTargetList(true);
+        showToast(keepSearch ? 'Filters reset' : 'Search and filters reset', 'info');
+    }
+
+    function getSidebarSectionKey(section) {
+        const header = section?.querySelector('.section-header');
+        return header?.id || header?.textContent?.trim() || '';
+    }
+
+    function getStoredSidebarCollapsedSections() {
+        try {
+            return JSON.parse(localStorage.getItem(SIDEBAR_COLLAPSE_STORAGE_KEY) || '[]');
+        } catch {
+            return [];
+        }
+    }
+
+    function saveSidebarCollapsedSections() {
+        const collapsed = Array.from(document.querySelectorAll('.sidebar-section.collapsed'))
+            .map(getSidebarSectionKey)
+            .filter(Boolean);
+        localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, JSON.stringify(collapsed));
+    }
+
+    function restoreSidebarSectionState(section) {
+        const key = getSidebarSectionKey(section);
+        if (!key) return;
+        const collapsed = new Set(getStoredSidebarCollapsedSections());
+        section.classList.toggle('collapsed', collapsed.has(key));
     }
 
     async function handleExportTargets() {
@@ -1206,8 +1456,8 @@
     function bindEvents() {
         buildMenubar();
         document.addEventListener('mousedown', handleMenubarOutsideClick);
-        window.addEventListener('blur', closeMenubar);
-        window.addEventListener('resize', closeMenubar);
+        addWindowCleanupListener('blur', closeMenubar);
+        addWindowCleanupListener('resize', closeMenubar);
 
         // Window controls
         DOM.btnMinimize?.addEventListener('click', () => window.electronAPI.minimizeWindow());
@@ -1239,8 +1489,19 @@
         });
 
         // Tray-driven openings
-        window.electronAPI.onOpenAddTarget?.(() => openModal('modal-add-target'));
-        window.electronAPI.onOpenSettings?.(() => switchView('settings'));
+        registerCleanup(window.electronAPI.onTriggerRefresh?.(() => {
+            if (!window.appState.isRefreshing) {
+                window.appState.refreshAllTargets();
+            }
+        }));
+        registerCleanup(window.electronAPI.onOpenAddTarget?.(() => openModal('modal-add-target')));
+        registerCleanup(window.electronAPI.onOpenSettings?.(() => switchView('settings')));
+        registerCleanup(window.electronAPI.onMaximizeChange?.((isMaximized) => updateMaximizeButtonState(isMaximized)));
+        if (window.electronAPI.isMaximized) {
+            window.electronAPI.isMaximized()
+                .then((isMaximized) => updateMaximizeButtonState(isMaximized))
+                .catch(() => {});
+        }
 
         // Refresh all
         DOM.refreshAllBtn?.addEventListener('click', () => {
@@ -1254,27 +1515,34 @@
 
         // Search
         DOM.searchInput?.addEventListener('input', (e) => {
-            window.appState.setSearchQuery(e.target.value);
-            DOM.searchClear.style.display = e.target.value ? 'flex' : 'none';
+            setTargetSearchQuery(e.target.value, { syncInput: false });
+        });
+
+        DOM.searchInput?.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (DOM.searchInput.value) {
+                e.preventDefault();
+                clearTargetSearch();
+            } else {
+                DOM.searchInput.blur();
+            }
         });
 
         DOM.searchClear?.addEventListener('click', () => {
-            DOM.searchInput.value = '';
-            window.appState.setSearchQuery('');
-            DOM.searchClear.style.display = 'none';
+            clearTargetSearch();
         });
 
         // Filters
         DOM.filterItems.forEach(item => {
             item.addEventListener('click', () => {
                 const filter = item.dataset.filter;
-                DOM.filterItems.forEach(f => f.classList.remove('active'));
-                item.classList.add('active');
                 window.appState.setActiveFilter(filter);
+                syncFilterControls();
             });
         });
 
         // Target list interactions
+        DOM.targetList?.addEventListener('pointerup', handleTargetListPointerUp);
         DOM.targetList?.addEventListener('dblclick', handleTargetListDoubleClick);
         if (DOM.targetList) {
             DOM.targetList.addEventListener('click', handleTargetListClickDelegated);
@@ -1286,8 +1554,7 @@
             btn.addEventListener('click', () => {
                 const sortBy = btn.dataset.sort;
                 window.appState.setSort(sortBy);
-                DOM.sortBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
+                syncSortButtons();
             });
         });
 
@@ -1412,7 +1679,7 @@
                 closeCommandPalette();
             }
         });
-        window.addEventListener('keydown', handleGlobalCommandPaletteShortcut);
+        addWindowCleanupListener('keydown', handleGlobalCommandPaletteShortcut);
 
         // Modal overlays (click outside to close)
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
@@ -1439,7 +1706,7 @@
 
         // Add target modal
         document.getElementById('btn-confirm-add')?.addEventListener('click', handleAddTarget);
-        document.getElementById('input-target-id')?.addEventListener('keypress', (e) => {
+        document.getElementById('input-target-id')?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') handleAddTarget();
         });
 
@@ -1447,10 +1714,7 @@
         document.getElementById('btn-preview-bulk')?.addEventListener('click', handleBulkPreview);
         document.getElementById('btn-confirm-bulk')?.addEventListener('click', handleBulkAdd);
         document.getElementById('input-bulk-ids')?.addEventListener('input', () => {
-            const bulkPreview = document.getElementById('bulk-preview');
-            const btnConfirmBulk = document.getElementById('btn-confirm-bulk');
-            if (bulkPreview) bulkPreview.style.display = 'none';
-            if (btnConfirmBulk) btnConfirmBulk.disabled = true;
+            scheduleBulkPreview();
         });
 
         // Add group modal
@@ -1593,10 +1857,13 @@
 
         // Section collapse toggles
         document.querySelectorAll('.section-header').forEach(header => {
+            const section = header.closest('.sidebar-section');
+            if (!section) return;
+            restoreSidebarSectionState(section);
             header.addEventListener('click', (e) => {
                 if (e.target.closest('.section-action-btn')) return;
-                const section = header.closest('.sidebar-section');
                 section.classList.toggle('collapsed');
+                saveSidebarCollapsedSections();
             });
         });
 
@@ -1944,6 +2211,8 @@
             renderHelpCenter();
             renderBountyPanel();
             loadSettings();
+            syncSortButtons();
+            syncFilterControls();
             window.appState.getTargets().forEach(syncReminderWatcher);
             refreshMenubarMenuState();
             updateOnboardingStats();
@@ -2082,6 +2351,7 @@
 
         state.on('sort-changed', () => {
             renderTargetList();
+            syncSortButtons();
         });
 
         state.on('groups-changed', () => {
@@ -2311,38 +2581,13 @@
     // ========================================================================
 
     function handleTargetListDoubleClick(event) {
-        const item = event.target.closest('.target-item');
-        if (!item) return;
+        const userId = resolveTargetIdFromEvent(event);
+        if (!userId) return;
+        if (!isPrimaryTargetListGesture(event)) return;
 
-        const userId = parseInt(item.dataset.userId, 10);
-        if (Number.isNaN(userId)) return;
-
-        window.appState.selectTarget(userId);
-
-        // Check if target's group has noAttack flag
-        const target = window.appState.getTarget(userId);
-        const group = target ? window.appState.getGroup(target.groupId) : null;
-
-        if (group && group.noAttack) {
-            showPremiumAlert({
-                title: 'Attack Prevention Warning',
-                message: `This target is in "${group.name}" which is flagged as "Do Not Attack". Are you sure you want to proceed?`,
-                icon: '🚫',
-                iconType: 'warning',
-                buttons: [
-                    {
-                        text: 'Continue Attack',
-                        type: 'danger',
-                        action: () => {
-                            handleAttackById(userId, 'list');
-                        }
-                    },
-                    { text: 'Cancel', type: 'secondary', action: null }
-                ]
-            });
-        } else {
-            handleAttackById(userId, 'list');
-        }
+        triggerTargetListAttack(userId);
+        resetTargetListDoubleClickTracker();
+        event.preventDefault();
     }
 
     // Update welcome view with dynamic content
@@ -2466,6 +2711,11 @@
     // Track which items are currently rendered to enable smart updates
     let renderedTargetIds = [];
     let isFullRenderNeeded = true;
+    const TARGET_LIST_DOUBLE_CLICK_MS = 700;
+    const TARGET_LIST_DOUBLE_CLICK_MAX_DISTANCE_PX = 32;
+    const TARGET_LIST_ATTACK_DEBOUNCE_MS = 250;
+    let lastTargetListClick = { id: null, time: 0, x: 0, y: 0 };
+    let lastTargetListAttackTs = 0;
 
     function updateAttackTrackerUI(targetsInView = null) {
         if (!DOM.attackTrackerToggle) return;
@@ -2527,13 +2777,77 @@
     }
 
     function resolveTargetIdFromEvent(event) {
-        const item = event.target.closest('.target-item');
+        const targetNode = event.target instanceof Element
+            ? event.target
+            : event.target?.parentElement || null;
+        const item = targetNode?.closest?.('.target-item');
         if (!item || !DOM.targetList?.contains(item)) return null;
         const id = parseInt(item.dataset.userId, 10);
         return Number.isFinite(id) ? id : null;
     }
 
+    function isPrimaryTargetListGesture(event) {
+        const isPrimaryButton = event.button === 0 || event.button === undefined;
+        const isPrimaryPointer = event.isPrimary === undefined || event.isPrimary;
+        const hasModifier = event.shiftKey || event.ctrlKey || event.metaKey || event.altKey;
+        return isPrimaryButton && isPrimaryPointer && !hasModifier;
+    }
+
+    function resetTargetListDoubleClickTracker() {
+        lastTargetListClick = { id: null, time: 0, x: 0, y: 0 };
+    }
+
+    function handleTargetListPointerUp(event) {
+        const userId = resolveTargetIdFromEvent(event);
+        if (!userId) return;
+
+        if (!isPrimaryTargetListGesture(event)) {
+            resetTargetListDoubleClickTracker();
+            return;
+        }
+
+        const now = Date.now();
+        const dx = (event.clientX || 0) - (lastTargetListClick.x || 0);
+        const dy = (event.clientY || 0) - (lastTargetListClick.y || 0);
+        const distance = Math.hypot(dx, dy);
+        const isDoubleClick =
+            lastTargetListClick.id === userId &&
+            (now - lastTargetListClick.time) <= TARGET_LIST_DOUBLE_CLICK_MS &&
+            distance <= TARGET_LIST_DOUBLE_CLICK_MAX_DISTANCE_PX;
+
+        lastTargetListClick = {
+            id: userId,
+            time: now,
+            x: event.clientX || 0,
+            y: event.clientY || 0
+        };
+
+        if (!isDoubleClick) return;
+
+        triggerTargetListAttack(userId);
+        resetTargetListDoubleClickTracker();
+        event.preventDefault();
+    }
+
+    function triggerTargetListAttack(userId) {
+        if (!userId) return;
+
+        const now = Date.now();
+        if (now - lastTargetListAttackTs < TARGET_LIST_ATTACK_DEBOUNCE_MS) return;
+        lastTargetListAttackTs = now;
+        resetTargetListDoubleClickTracker();
+
+        window.appState.selectTarget(userId);
+        handleAttackById(userId, 'list');
+    }
+
     function handleTargetListClickDelegated(event) {
+        const emptyAction = event.target.closest?.('[data-empty-action]');
+        if (emptyAction) {
+            handleEmptyListAction(emptyAction.dataset.emptyAction);
+            return;
+        }
+
         const userId = resolveTargetIdFromEvent(event);
         if (!userId) return;
 
@@ -2554,7 +2868,7 @@
     function renderTargetList(forceFullRender = false) {
         const targets = window.appState.getFilteredTargets();
         const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
-        DOM.targetsCount.textContent = `(${targets.length})`;
+        updateTargetsCountDisplay(targets.length, selectedIds);
         activeCountdownTargets.clear();
 
         // Update welcome view with current stats
@@ -2564,11 +2878,7 @@
 
         if (targets.length === 0) {
             resetTargetMetaCache();
-            DOM.targetList.innerHTML = `
-                <div class="empty-list">
-                    <p>No targets found</p>
-                </div>
-            `;
+            DOM.targetList.innerHTML = createTargetEmptyState();
             updateSelectionToolbar([]);
             renderedTargetIds = [];
             isFullRenderNeeded = true;
@@ -2610,6 +2920,51 @@
 
         // Update selection
         updateTargetListSelection(selectedIds);
+    }
+
+    function createTargetEmptyState() {
+        const hasTargets = (window.appState.getTargets?.() || []).length > 0;
+        const hasSearch = !!(window.appState.searchQuery || '').trim();
+        const hasFilter = (window.appState.activeFilter || 'all') !== 'all' || (window.appState.activeGroupId || 'all') !== 'all';
+        const title = hasTargets ? 'No targets match this view' : 'No targets yet';
+        const detail = hasTargets
+            ? 'Adjust the search, filter, or group to bring targets back into view.'
+            : 'Add a target or paste a batch of Torn IDs to start tracking.';
+        const actions = [];
+
+        if (hasSearch) actions.push('<button class="empty-action-btn" data-empty-action="clear-search">Clear search</button>');
+        if (hasFilter) actions.push('<button class="empty-action-btn" data-empty-action="clear-filters">Reset filters</button>');
+        actions.push('<button class="empty-action-btn primary" data-empty-action="add-target">Add target</button>');
+        actions.push('<button class="empty-action-btn" data-empty-action="bulk-add">Bulk import</button>');
+
+        return `
+            <div class="empty-list target-empty-state">
+                <div class="target-empty-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2zm1 5h-2v6h5v-2h-3V7z"/></svg>
+                </div>
+                <p class="target-empty-title">${escapeHtml(title)}</p>
+                <p class="target-empty-detail">${escapeHtml(detail)}</p>
+                <div class="target-empty-actions">${actions.join('')}</div>
+            </div>
+        `;
+    }
+
+    function handleEmptyListAction(action) {
+        switch (action) {
+            case 'clear-search':
+                clearTargetSearch();
+                break;
+            case 'clear-filters':
+                clearTargetFilters();
+                break;
+            case 'bulk-add':
+                openModal('modal-bulk-add');
+                break;
+            case 'add-target':
+            default:
+                openModal('modal-add-target');
+                break;
+        }
     }
 
     // Update a single target item in place without replacing the element
@@ -2752,9 +3107,10 @@
         }
 
         // Avatar HTML
+        const avatarSrc = getSafeImageSource(target.avatarPath || target.avatarUrl);
         const avatarHtml = showAvatars ? `
-            <div class="target-avatar ${target.avatarPath || target.avatarUrl ? '' : 'placeholder'}">
-                ${target.avatarPath || target.avatarUrl ? `<img src="${target.avatarPath || target.avatarUrl}" alt="${escapeHtml(displayName)}">` : ''}
+            <div class="target-avatar ${avatarSrc ? '' : 'placeholder'}">
+                ${avatarSrc ? `<img src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(displayName)}">` : ''}
             </div>
         ` : '';
 
@@ -2938,7 +3294,7 @@
     }
 
     function updateSelectionToolbar(selectedIds = null) {
-        // Toolbar removed per user preference; keep hook for future UI.
+        updateTargetsCountDisplay(null, selectedIds);
         return;
     }
 
@@ -3142,13 +3498,8 @@
             if (statusEl) statusEl.textContent = value;
         };
 
-        const setMessage = (value, allowHtml = false) => {
-            if (!messageEl) return;
-            if (allowHtml) {
-                messageEl.innerHTML = value;
-            } else {
-                messageEl.textContent = value;
-            }
+        const setMessage = (value) => {
+            setElementContent(messageEl, value);
         };
 
         if (loading && !hasCachedIntel) {
@@ -3184,7 +3535,7 @@
                 setStateClass('intel-missing');
                 clearStats();
                 setStatus('TornStats key required');
-                setMessage('Add your TornStats API key in Settings to enable battle stat estimation.', true);
+                setMessage('Add your TornStats API key in Settings to enable battle stat estimation.');
                 if (updatedEl) updatedEl.textContent = '-';
                 if (sourceEl) sourceEl.textContent = '';
                 if (freshnessEl) freshnessEl.textContent = '';
@@ -3766,10 +4117,9 @@
 
         // Render custom groups
         const customGroups = groups.filter(g => !g.isDefault);
-        const existingAll = DOM.groupsList.querySelector('[data-group="all"]');
         
         DOM.groupsList.innerHTML = '';
-        DOM.groupsList.appendChild(existingAll || createGroupElement({ id: 'all', name: 'All Targets', color: '#007acc' }, groupCounts.all));
+        DOM.groupsList.appendChild(createGroupElement({ id: 'all', name: 'All Targets', color: '#007acc' }, groupCounts.all));
 
         customGroups.forEach(group => {
             DOM.groupsList.appendChild(createGroupElement(group, groupCounts[group.id] || 0));
@@ -3797,10 +4147,11 @@
         const div = document.createElement('div');
         const activeClass = window.appState.activeGroupId === group.id ? 'active' : '';
         const flaggedClass = group.noAttack ? 'flagged-no-attack' : '';
+        const safeColor = sanitizeHexColor(group.color);
         div.className = `group-item ${activeClass} ${flaggedClass}`;
         div.dataset.group = group.id;
         div.innerHTML = `
-            <span class="group-color" style="background: ${group.color};"></span>
+            <span class="group-color" style="background: ${safeColor};"></span>
             <span class="group-name">${escapeHtml(group.name)}</span>
             ${group.noAttack ? '<img src="assets/prevent.png" class="group-prevent-icon" title="Do Not Attack - Double-click protection enabled" alt="Prevent" />' : ''}
             <span class="group-count">${count}</span>
@@ -3939,12 +4290,19 @@
         const state = window.appState || {};
         const settings = state.settings || {};
         const selected = state.getSelectedTarget ? state.getSelectedTarget() : null;
+        const selectedIds = getSelectedTargetIds();
+        const selectedTargets = getTargetsForIds(selectedIds);
         const hasTargets = (state.getTargets?.() || []).length > 0;
+        const hasSelection = selectedTargets.length > 0;
 
         const items = [
             { id: 'add-target', label: 'Add Target', detail: 'Open add target dialog', shortcut: 'Ctrl+N', action: () => openModal('modal-add-target') },
             { id: 'bulk-add', label: 'Bulk Import Targets', detail: 'Paste IDs or URLs', shortcut: 'Ctrl+Shift+B', action: () => openModal('modal-bulk-add') },
+            { id: 'bulk-add-clipboard', label: 'Bulk Import from Clipboard', detail: 'Paste clipboard into bulk import', keywords: 'paste ids', action: () => openBulkImportFromClipboard() },
             { id: 'refresh-all', label: 'Refresh All Targets', detail: 'Force live status update', shortcut: 'Ctrl+R', enabled: () => hasTargets, action: () => window.appState.refreshAllTargets() },
+            { id: 'focus-search', label: 'Focus Target Search', detail: 'Search visible targets', shortcut: 'Ctrl+F', action: () => focusTargetSearch() },
+            { id: 'clear-search-filters', label: 'Clear Search and Filters', detail: 'Return to all targets', shortcut: 'Ctrl+Shift+F', action: () => clearTargetFilters() },
+            { id: 'select-all-visible', label: 'Select All Visible Targets', detail: 'Select the current filtered list', shortcut: 'Ctrl+A', enabled: () => hasTargets, action: () => handleSelectAllTargets() },
             { id: 'open-settings', label: 'Open Settings', detail: 'Tune preferences', shortcut: 'Ctrl+,', action: () => switchView('settings') },
             { id: 'view-targets', label: 'View Targets', detail: 'Main list', shortcut: 'Ctrl+1', action: () => switchView('targets') },
             { id: 'view-history', label: 'View History', detail: 'Recent attacks', shortcut: 'Ctrl+2', action: () => switchView('history') },
@@ -3956,10 +4314,16 @@
             { id: 'open-backup', label: 'Backup & Restore', detail: 'Export or import your data', action: () => switchView('backup') },
             { id: 'open-about', label: 'About', detail: 'Version, data path', action: () => showAboutModal() },
             { id: 'open-data-folder', label: 'Open Data Folder', detail: 'Jump to storage location', action: () => window.electronAPI?.openAppPath?.('data') },
+            { id: 'open-logs-folder', label: 'Open Logs Folder', detail: 'Jump to diagnostic logs', action: () => openLogsFolder() },
             { id: 'toggle-compact', label: settings.compactMode ? 'Disable Compact Mode' : 'Enable Compact Mode', detail: 'Adjust density', action: () => window.appState.updateSettings({ compactMode: !settings.compactMode }) },
             selected ? { id: 'attack-selected', label: 'Attack Selected Target', detail: 'Open attack link', shortcut: 'Enter', action: () => handleAttack() } : null,
             selected ? { id: 'open-profile', label: 'Open Selected Profile', detail: 'View target profile', action: () => handleProfile() } : null,
+            hasSelection ? { id: 'refresh-selection', label: `Refresh Selected (${selectedTargets.length})`, detail: 'Update selected targets', shortcut: 'Ctrl+Shift+R', action: () => refreshSelectedTargets() } : null,
             selected ? { id: 'toggle-favorite', label: 'Toggle Favorite', detail: 'Mark selected target', shortcut: 'F', action: () => window.appState.toggleFavorite(selected.userId) } : null,
+            hasSelection ? { id: 'watch-selection', label: 'Toggle Watch for Selection', detail: 'Enable or disable release alerts', shortcut: 'W', action: () => toggleWatchForTargets(selectedTargets) } : null,
+            hasSelection ? { id: 'copy-selected-ids', label: `Copy Selected IDs (${selectedTargets.length})`, detail: 'Copy one ID per line', shortcut: 'Ctrl+Shift+C', action: () => copyTargetsToClipboard(selectedTargets, 'ids') } : null,
+            hasSelection ? { id: 'copy-selected-profiles', label: 'Copy Selected Profile Links', detail: 'Copy Torn profile URLs', action: () => copyTargetsToClipboard(selectedTargets, 'profiles') } : null,
+            hasSelection ? { id: 'copy-selected-attacks', label: 'Copy Selected Attack Links', detail: 'Copy Torn attack URLs', action: () => copyTargetsToClipboard(selectedTargets, 'attacks') } : null,
             selected ? { id: 'remove-selected', label: 'Remove Selected Target', detail: 'Delete from list', shortcut: 'Del', action: () => handleRemoveTarget() } : null,
             { id: 'backup-now', label: 'Create Backup', detail: 'Manual backup', action: () => handleCreateBackup() },
             { id: 'export-targets', label: 'Export Targets', detail: 'Save to file', action: () => handleExportTargets() },
@@ -3968,7 +4332,20 @@
             { id: 'show-command-palette', label: 'Show Command Palette', detail: 'Search quick actions', shortcut: 'Ctrl+Shift+P', action: () => openCommandPalette() }
         ];
 
-        return items
+        const targetCommands = (state.getFilteredTargets?.() || [])
+            .slice(0, 30)
+            .map(target => ({
+                id: `target-${target.userId}`,
+                label: `Select ${target.getDisplayName?.() || `User ${target.userId}`}`,
+                detail: `Target #${target.userId}${target.statusState ? ` | ${target.statusState}` : ''}`,
+                keywords: `target user profile ${target.userId} ${target.faction || ''} ${target.notes || ''}`,
+                action: () => {
+                    switchView('targets');
+                    window.appState.selectTarget(target.userId, { anchorId: target.userId });
+                }
+            }));
+
+        return [...items, ...targetCommands]
             .filter(item => item && (!item.enabled || item.enabled()))
             .map(item => ({
                 ...item,
@@ -4054,22 +4431,22 @@
         const cmd = commandPaletteState.filtered[commandPaletteState.highlightIndex];
         if (!cmd) return;
         closeCommandPalette();
-        try {
-            cmd.action?.();
-        } catch (error) {
-            console.error('Command execution failed', error);
-            showToast?.('Command failed: ' + error.message, 'error');
-        }
+        Promise.resolve()
+            .then(() => cmd.action?.())
+            .catch(error => {
+                console.error('Command execution failed', error);
+                showToast?.('Command failed: ' + error.message, 'error');
+            });
     }
 
     function handleGlobalCommandPaletteShortcut(event) {
         const overlayOpen = DOM.commandPaletteOverlay?.classList.contains('visible');
         const isInput = ['input', 'textarea'].includes((event.target?.tagName || '').toLowerCase()) || event.target?.isContentEditable;
 
-        const openShortcut = (event.key === 'P' && event.shiftKey && (event.ctrlKey || event.metaKey)) || event.key === 'F1';
+        const openShortcut = event.key === 'P' && event.shiftKey && (event.ctrlKey || event.metaKey);
         if (openShortcut && !overlayOpen) {
             event.preventDefault();
-            if (!isInput || event.key === 'F1') {
+            if (!isInput) {
                 openCommandPalette('');
             }
             return;
@@ -4744,7 +5121,7 @@
         // Show attack button prominently if target is Okay
         const attackBtn = entry.targetId && !entry.claimedAt && !entry.isExpired
             ? `<button class="bounty-action-btn ${isOkay ? 'attack' : ''}" data-bounty-action="attack" data-target-id="${entry.targetId}" ${!isOkay ? 'disabled title="Target not available"' : ''}>
-                <svg viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"><path fill="currentColor" d="M19.78 2.2l2.02 2.02-2.2 7.36-4.78-1.58-6.58 6.58 1.58 4.78-7.36 2.2-2.02-2.02 2.2-7.36 4.78 1.58L14 9.18l-1.58-4.78 7.36-2.2z"/></svg>
+                <svg class="bounty-action-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M19.78 2.2l2.02 2.02-2.2 7.36-4.78-1.58-6.58 6.58 1.58 4.78-7.36 2.2-2.02-2.02 2.2-7.36 4.78 1.58L14 9.18l-1.58-4.78 7.36-2.2z"/></svg>
                 Attack
             </button>`
             : '';
@@ -4785,19 +5162,19 @@
                     <div class="bounty-actions">
                         ${attackBtn}
                         ${entry.targetId ? `<button class="bounty-action-btn" data-bounty-action="view" data-target-id="${entry.targetId}">
-                            <svg viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                            <svg class="bounty-action-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
                             Profile
                         </button>` : ''}
                         ${!entry.targetId ? `<button class="bounty-action-btn" data-bounty-action="track">
-                            <svg viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                            <svg class="bounty-action-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                             Add to Targets
                         </button>` : ''}
                         <button class="bounty-action-btn ${entry.claimedAt ? '' : 'success'}" data-bounty-action="${entry.claimedAt ? 'unclaim' : 'claim'}">
-                            <svg viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"><path fill="currentColor" d="${entry.claimedAt ? 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z' : 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z'}"/></svg>
+                            <svg class="bounty-action-icon" viewBox="0 0 24 24"><path fill="currentColor" d="${entry.claimedAt ? 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z' : 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z'}"/></svg>
                             ${entry.claimedAt ? 'Unclaim' : 'Claimed'}
                         </button>
                         <button class="bounty-action-btn danger" data-bounty-action="remove" title="Remove from watchlist">
-                            <svg viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:middle;"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                            <svg class="bounty-action-icon bounty-action-icon--solo" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                         </button>
                     </div>
                 </div>
@@ -4821,7 +5198,7 @@
         const originalText = addBtn?.innerHTML;
         if (addBtn) {
             addBtn.disabled = true;
-            addBtn.innerHTML = `<svg class="spin" viewBox="0 0 24 24" style="width:16px;height:16px;"><path fill="currentColor" d="M12 4V2A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8z"/></svg> Adding...`;
+            addBtn.innerHTML = `<svg class="spin bounty-spinner-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M12 4V2A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8z"/></svg> Adding...`;
         }
 
         try {
@@ -4881,12 +5258,7 @@
             switch (action) {
                 case 'attack': {
                     if (targetId && !Number.isNaN(targetId)) {
-                        const url = `https://www.torn.com/loader.php?sid=attack&user2ID=${targetId}`;
-                        if (window.electronAPI?.openExternal) {
-                            window.electronAPI.openExternal(url);
-                        } else {
-                            window.open(url, '_blank');
-                        }
+                        handleAttackById(targetId, 'bounty-watchlist', { selectTarget: false });
                     }
                     break;
                 }
@@ -4896,7 +5268,7 @@
                         if (window.electronAPI?.openExternal) {
                             window.electronAPI.openExternal(url);
                         } else {
-                            window.open(url, '_blank');
+                            window.open(url, '_blank', 'noreferrer');
                         }
                     }
                     break;
@@ -5059,7 +5431,9 @@
                 card.addEventListener('click', () => {
                     const filter = card.dataset.filter;
                     if (filter) {
-                        window.appState.setFilter(filter);
+                        window.appState.setActiveGroup?.('all');
+                        window.appState.setActiveFilter?.(filter);
+                        window.appState.setSearchQuery?.('');
                         switchView('targets');
                         showToast(`Filtered to ${filter === 'okay' ? 'attackable' : filter} targets`, 'info');
                     }
@@ -5295,7 +5669,7 @@
             ...d,
             count: Math.max(Number(d.count) || 0, 0),
             name: d.name || 'Group',
-            color: d.color || 'var(--vscode-accent-blue)'
+            color: sanitizeHexColor(d.color)
         }));
         const sorted = sanitized.slice().sort((a, b) => b.count - a.count);
         const total = sanitized.reduce((sum, g) => sum + g.count, 0);
@@ -5368,6 +5742,33 @@
         }
     }
 
+    function bindLootErrorActions(container) {
+        if (!container) return;
+        const retryButtons = container.querySelectorAll('[data-loot-action="retry"]');
+        retryButtons.forEach(btn => {
+            btn.addEventListener('click', () => renderLootTimer());
+        });
+
+        const settingsLink = container.querySelector('[data-loot-action="settings"]');
+        if (settingsLink) {
+            settingsLink.addEventListener('click', (event) => {
+                event.preventDefault();
+                if (typeof switchView === 'function') {
+                    switchView('settings');
+                }
+            });
+        }
+    }
+
+    function bindLootImageFallback(container) {
+        if (!container) return;
+        container.querySelectorAll('.boss-avatar-img').forEach(img => {
+            img.addEventListener('error', () => {
+                img.classList.add('is-hidden');
+            }, { once: true });
+        });
+    }
+
     async function renderLootTimer() {
         const container = document.getElementById('loot-bosses-grid');
         if (!container) return;
@@ -5383,6 +5784,7 @@
             await fetchLootApiData();
             // Render boss cards with real data
             container.innerHTML = LOOT_NPCS.map(npc => createBossCard(npc)).join('');
+            bindLootImageFallback(container);
             // Start updating timers every second
             updateLootTimers();
             lootTimerInterval = setInterval(updateLootTimers, 1000);
@@ -5417,29 +5819,28 @@
                         </div>
                         <h3>TornStats is down for maintenance</h3>
                         <p>Loot timers will resume once TornStats is back online.</p>
-                        <button class="action-btn" onclick="window.renderLootTimer()" style="margin-top:16px;">Retry</button>
+                        <button class="action-btn loot-error-action" data-loot-action="retry">Retry</button>
                     </div>
                 `;
+                bindLootErrorActions(container);
                 return;
             }
 
             container.innerHTML = `
                 <div class="loot-error">
-                    <svg viewBox="0 0 24 24" style="width:48px;height:48px;fill:var(--status-error);margin-bottom:16px;">
+                    <svg class="loot-error-icon" viewBox="0 0 24 24">
                         <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
                     </svg>
                     <h3>Unable to load loot data</h3>
                     <p>${errorMessage}</p>
                     ${!window.tornStatsAPI.apiKey ?
-                        '<p style="margin-top:12px;">Configure your TornStats API key in <a href="#" onclick="window.switchView(\'settings\');return false;" style="color:var(--vscode-accent-blue);">Settings</a> to use this feature.</p>' :
-                        '<button class="action-btn primary" onclick="window.renderLootTimer()" style="margin-top:16px;">Retry</button>'}
+                        '<p class="loot-error-hint">Configure your TornStats API key in <a href="#" class="loot-error-link" data-loot-action="settings">Settings</a> to use this feature.</p>' :
+                        '<button class="action-btn primary loot-error-action" data-loot-action="retry">Retry</button>'}
                 </div>
             `;
+            bindLootErrorActions(container);
         }
     }
-
-    // Expose renderLootTimer to global scope for inline event handlers
-    window.renderLootTimer = renderLootTimer;
 
     async function fetchLootApiData(retryCount = 0) {
         const MAX_RETRIES = 2;
@@ -5480,7 +5881,7 @@
                  error.message.includes('Failed to fetch') ||
                  error.message.includes('TornStats server error'))) {
 
-                console.log(`Retrying TornStats API fetch (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
+                debugLog(`Retrying TornStats API fetch (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
                 await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (retryCount + 1)));
                 return fetchLootApiData(retryCount + 1);
             }
@@ -5498,7 +5899,7 @@
                 <div class="boss-hero">
                     <div class="boss-identity">
                         <div class="boss-avatar small">
-                            <img src="assets/bosses/${npc.image}" alt="${npc.name}" onerror="this.style.display='none'">
+                            <img src="assets/bosses/${npc.image}" alt="${npc.name}" class="boss-avatar-img">
                             ${seasonalBadge}
                         </div>
                         <div class="boss-name-block">
@@ -5553,7 +5954,7 @@
                 </div>
                 <div class="loot-level-progress">
                     <div class="loot-level-bar">
-                        <div class="loot-level-fill" style="width: 0%"></div>
+                        <div class="loot-level-fill"></div>
                     </div>
                 </div>
                 <div class="loot-level-timer" data-minutes="${level.minutes}">
@@ -5815,96 +6216,152 @@
             return { currentLevel, nextLevel, minutesToNext };
         };
 
-        const html = `
-            <div class="loot-time-dialog" data-boss-id="${npc.id}">
-                <div class="loot-time-hero">
-                    <div class="loot-time-npc">
-                        <div class="loot-time-avatar">
-                            <img src="assets/bosses/${npc.image}" alt="${npc.name}" />
-                        </div>
-                        <div class="loot-time-heading">
-                            <div class="loot-time-label">Set defeat time</div>
-                            <div class="loot-time-title">${npc.name} <span class="loot-time-id">[${npc.id}]</span></div>
-                            <div class="loot-time-subtitle">Manual override for loot timers. Choose a preset or dial in an exact timestamp.</div>
-                        </div>
-                    </div>
-                    <div class="loot-time-clock">
-                        <div class="clock-label">Local clock</div>
-                        <div class="clock-value">${formatClock(now)}</div>
-                        <div class="clock-sub">${formatDateLabel(now)}</div>
-                    </div>
-                </div>
+        const createNode = (tag, className, text) => {
+            const element = document.createElement(tag);
+            if (className) element.className = className;
+            if (text !== undefined) element.textContent = text;
+            return element;
+        };
 
-                <div class="loot-time-body">
-                    <div class="loot-time-card">
-                        <div class="card-header">
-                            <span class="card-title">Quick picks</span>
-                            <span class="card-subtitle">Fast presets for common kill windows.</span>
-                        </div>
-                        <div class="loot-time-pills">
-                            ${presetOptions.map(opt => `
-                                <button class="loot-time-pill" data-minutes="${opt.value}">
-                                    <span class="pill-label">${opt.label}</span>
-                                    <span class="pill-sub">${opt.note}</span>
-                                </button>
-                            `).join('')}
-                        </div>
-                    </div>
+        const dialogContent = createNode('div', 'loot-time-dialog');
+        dialogContent.dataset.bossId = String(npc.id);
 
-                    <div class="loot-time-card">
-                        <div class="card-header">
-                            <span class="card-title">Custom timing</span>
-                            <span class="card-subtitle">Match the exact defeat moment.</span>
-                        </div>
-                        <div class="input-stack">
-                            <label class="input-label" for="custom-minutes">Minutes ago</label>
-                            <div class="input-affix">
-                                <input type="number" id="custom-minutes" min="0" max="10000" inputmode="numeric" placeholder="Type minutes...">
-                                <span class="input-add-on">min</span>
-                            </div>
-                        </div>
-                        <div class="input-divider"><span>or</span></div>
-                        <div class="input-stack">
-                            <label class="input-label" for="custom-datetime">Exact defeat time</label>
-                            <input type="datetime-local" id="custom-datetime">
-                            <small class="input-hint">Uses your local timezone.</small>
-                        </div>
-                        <div class="loot-time-slider">
-                            <div class="slider-header">
-                                <span>Scrub timeline</span>
-                                <span id="loot-time-range-value">${formatMinutesLabel(activeMinutes)}</span>
-                            </div>
-                            <input type="range" id="loot-time-range" min="0" max="${sliderMaxMinutes}" step="5" value="${activeMinutes}">
-                            <div class="slider-scale">
-                                <span>Now</span>
-                                <span>${sliderMaxMinutes / 60}h back</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        const hero = createNode('div', 'loot-time-hero');
+        const npcSection = createNode('div', 'loot-time-npc');
+        const avatar = createNode('div', 'loot-time-avatar');
+        const avatarImg = document.createElement('img');
+        avatarImg.src = `assets/bosses/${npc.image}`;
+        avatarImg.alt = npc.name;
+        avatar.appendChild(avatarImg);
 
-                <div class="loot-time-preview">
-                    <div class="preview-summary">
-                        <div class="preview-label">Will set defeat to</div>
-                        <div class="preview-time" id="loot-time-preview-time">${formatDateTime(now)}</div>
-                        <div class="preview-sub" id="loot-time-preview-sub"></div>
-                    </div>
-                    <div class="preview-progress">
-                        <div class="preview-progress-bar">
-                            <div class="preview-progress-fill" id="loot-time-progress-fill" style="width:0%;"></div>
-                        </div>
-                        <div class="preview-levels">
-                            ${LOOT_LEVELS.map(level => `
-                                <div class="preview-level" data-level="${level.level}" data-minutes="${level.minutes}">
-                                    <span class="level-badge">${level.label.replace('Level ', '')}</span>
-                                    <span class="level-time">${level.minutes}m</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+        const heading = createNode('div', 'loot-time-heading');
+        heading.append(createNode('div', 'loot-time-label', 'Set defeat time'));
+        const title = createNode('div', 'loot-time-title');
+        title.append(document.createTextNode(`${npc.name} `));
+        title.append(createNode('span', 'loot-time-id', `[${npc.id}]`));
+        heading.append(
+            title,
+            createNode('div', 'loot-time-subtitle', 'Manual override for loot timers. Choose a preset or dial in an exact timestamp.')
+        );
+        npcSection.append(avatar, heading);
+
+        const clock = createNode('div', 'loot-time-clock');
+        clock.append(
+            createNode('div', 'clock-label', 'Local clock'),
+            createNode('div', 'clock-value', formatClock(now)),
+            createNode('div', 'clock-sub', formatDateLabel(now))
+        );
+        hero.append(npcSection, clock);
+
+        const body = createNode('div', 'loot-time-body');
+        const quickCard = createNode('div', 'loot-time-card');
+        const quickHeader = createNode('div', 'card-header');
+        quickHeader.append(
+            createNode('span', 'card-title', 'Quick picks'),
+            createNode('span', 'card-subtitle', 'Fast presets for common kill windows.')
+        );
+        const pills = createNode('div', 'loot-time-pills');
+        presetOptions.forEach((opt) => {
+            const button = createNode('button', 'loot-time-pill');
+            button.type = 'button';
+            button.dataset.minutes = String(opt.value);
+            button.append(
+                createNode('span', 'pill-label', opt.label),
+                createNode('span', 'pill-sub', opt.note)
+            );
+            pills.appendChild(button);
+        });
+        quickCard.append(quickHeader, pills);
+
+        const customCard = createNode('div', 'loot-time-card');
+        const customHeader = createNode('div', 'card-header');
+        customHeader.append(
+            createNode('span', 'card-title', 'Custom timing'),
+            createNode('span', 'card-subtitle', 'Match the exact defeat moment.')
+        );
+
+        const minutesStack = createNode('div', 'input-stack');
+        const minutesLabel = createNode('label', 'input-label', 'Minutes ago');
+        minutesLabel.htmlFor = 'custom-minutes';
+        const minutesAffix = createNode('div', 'input-affix');
+        const minutesInput = document.createElement('input');
+        minutesInput.type = 'number';
+        minutesInput.id = 'custom-minutes';
+        minutesInput.min = '0';
+        minutesInput.max = '10000';
+        minutesInput.inputMode = 'numeric';
+        minutesInput.placeholder = 'Type minutes...';
+        minutesAffix.append(minutesInput, createNode('span', 'input-add-on', 'min'));
+        minutesStack.append(minutesLabel, minutesAffix);
+
+        const divider = createNode('div', 'input-divider');
+        divider.append(createNode('span', '', 'or'));
+
+        const datetimeStack = createNode('div', 'input-stack');
+        const datetimeLabel = createNode('label', 'input-label', 'Exact defeat time');
+        datetimeLabel.htmlFor = 'custom-datetime';
+        const datetimeInput = document.createElement('input');
+        datetimeInput.type = 'datetime-local';
+        datetimeInput.id = 'custom-datetime';
+        datetimeStack.append(
+            datetimeLabel,
+            datetimeInput,
+            createNode('small', 'input-hint', 'Uses your local timezone.')
+        );
+
+        const slider = createNode('div', 'loot-time-slider');
+        const sliderHeader = createNode('div', 'slider-header');
+        const rangeValue = createNode('span', '', formatMinutesLabel(activeMinutes));
+        rangeValue.id = 'loot-time-range-value';
+        sliderHeader.append(createNode('span', '', 'Scrub timeline'), rangeValue);
+        const rangeInput = document.createElement('input');
+        rangeInput.type = 'range';
+        rangeInput.id = 'loot-time-range';
+        rangeInput.min = '0';
+        rangeInput.max = String(sliderMaxMinutes);
+        rangeInput.step = '5';
+        rangeInput.value = String(activeMinutes);
+        const sliderScale = createNode('div', 'slider-scale');
+        sliderScale.append(
+            createNode('span', '', 'Now'),
+            createNode('span', '', `${sliderMaxMinutes / 60}h back`)
+        );
+        slider.append(sliderHeader, rangeInput, sliderScale);
+        customCard.append(customHeader, minutesStack, divider, datetimeStack, slider);
+        body.append(quickCard, customCard);
+
+        const preview = createNode('div', 'loot-time-preview');
+        const previewSummary = createNode('div', 'preview-summary');
+        const previewTimeEl = createNode('div', 'preview-time', formatDateTime(now));
+        previewTimeEl.id = 'loot-time-preview-time';
+        const previewSubEl = createNode('div', 'preview-sub', '');
+        previewSubEl.id = 'loot-time-preview-sub';
+        previewSummary.append(
+            createNode('div', 'preview-label', 'Will set defeat to'),
+            previewTimeEl,
+            previewSubEl
+        );
+
+        const previewProgress = createNode('div', 'preview-progress');
+        const progressBar = createNode('div', 'preview-progress-bar');
+        const progressFill = createNode('div', 'preview-progress-fill');
+        progressFill.id = 'loot-time-progress-fill';
+        progressBar.appendChild(progressFill);
+        const previewLevels = createNode('div', 'preview-levels');
+        LOOT_LEVELS.forEach((level) => {
+            const levelEl = createNode('div', 'preview-level');
+            levelEl.dataset.level = String(level.level);
+            levelEl.dataset.minutes = String(level.minutes);
+            levelEl.append(
+                createNode('span', 'level-badge', level.label.replace('Level ', '')),
+                createNode('span', 'level-time', `${level.minutes}m`)
+            );
+            previewLevels.appendChild(levelEl);
+        });
+        previewProgress.append(progressBar, previewLevels);
+        preview.append(previewSummary, previewProgress);
+
+        dialogContent.append(hero, body, preview);
 
         const getActiveMinutes = () => Math.max(0, Math.round(activeMinutes || 0));
 
@@ -5918,10 +6375,9 @@
 
         showPremiumAlert({
             title: 'Set Loot Timer',
-            message: html,
+            messageContent: dialogContent,
             icon: '⏱️',
             iconType: 'info',
-            allowHtml: true,
             dialogClass: 'premium-alert-wide loot-time-modal',
             buttons: [
                 { text: 'Cancel', type: 'secondary', action: null },
@@ -5929,15 +6385,8 @@
             ]
         });
 
-        const presetButtons = Array.from(document.querySelectorAll('.loot-time-pill'));
-        const minutesInput = document.getElementById('custom-minutes');
-        const datetimeInput = document.getElementById('custom-datetime');
-        const rangeInput = document.getElementById('loot-time-range');
-        const rangeValue = document.getElementById('loot-time-range-value');
-        const previewTimeEl = document.getElementById('loot-time-preview-time');
-        const previewSubEl = document.getElementById('loot-time-preview-sub');
-        const progressFill = document.getElementById('loot-time-progress-fill');
-        const levelEls = Array.from(document.querySelectorAll('.preview-level'));
+        const presetButtons = Array.from(dialogContent.querySelectorAll('.loot-time-pill'));
+        const levelEls = Array.from(dialogContent.querySelectorAll('.preview-level'));
 
         const updatePresetSelection = (minutes) => {
             presetButtons.forEach(btn => {
@@ -6510,6 +6959,8 @@
         // Apply theme and list density
         applyTheme(settings.theme || 'dark');
         applyListDensity(settings.listDensity || 'comfortable');
+        syncSortButtons();
+        syncFilterControls();
         updateAttackTrackerUI();
 
         // Set TornStats API key
@@ -6540,35 +6991,49 @@
         }
     }
 
+    function setStatusMessage(statusEl, className, message) {
+        if (!statusEl) return;
+        statusEl.textContent = '';
+        if (!message) return;
+        const span = document.createElement('span');
+        span.className = className;
+        span.textContent = message;
+        statusEl.appendChild(span);
+    }
+
     async function handleValidateKey() {
         const input = document.getElementById('setting-api-key');
         const status = document.getElementById('api-key-status');
         const key = input.value.trim();
 
         if (!key) {
-            status.innerHTML = '<span class="status-error">Please enter an API key</span>';
+            setStatusMessage(status, 'status-error', 'Please enter an API key');
             return;
         }
 
-        status.innerHTML = '<span class="status-loading">Validating...</span>';
+        setStatusMessage(status, 'status-loading', 'Validating...');
 
         const result = await window.appState.validateApiKey(key);
 
-        if (result.valid) {
-            status.innerHTML = `<span class="status-success">Valid key for ${result.user.name} [${result.user.id}] (Lv.${result.user.level})</span>`;
+        if (result.valid && result.user) {
+            const user = result.user;
+            const userName = user.name || 'Unknown';
+            const userId = user.id ?? '?';
+            const userLevel = Number.isFinite(user.level) ? user.level : '?';
+            setStatusMessage(status, 'status-success', `Valid key for ${userName} [${userId}] (Lv.${userLevel})`);
             await window.appState.updateSettings({
                 apiKey: key,
-                playerLevel: result.user.level,
-                playerName: result.user.name,
-                playerId: result.user.id
+                playerLevel: user.level,
+                playerName: user.name,
+                playerId: user.id
             });
             if (DOM.settingPlayerLevel) {
-                DOM.settingPlayerLevel.value = result.user.level || '';
+                DOM.settingPlayerLevel.value = user.level || '';
             }
             showToast('API key saved successfully', 'success');
             handleOnboardingResume('api');
         } else {
-            status.innerHTML = `<span class="status-error">${result.error}</span>`;
+            setStatusMessage(status, 'status-error', result?.error || 'Invalid API key');
         }
     }
 
@@ -6578,17 +7043,17 @@
         const key = input.value.trim();
 
         if (!key) {
-            status.innerHTML = '<span class="status-error">Please enter a TornStats API key</span>';
+            setStatusMessage(status, 'status-error', 'Please enter a TornStats API key');
             return;
         }
 
         // Validate key format before making API call
         if (!key.startsWith('TS_')) {
-            status.innerHTML = '<span class="status-error">Invalid key format. TornStats keys start with "TS_"</span>';
+            setStatusMessage(status, 'status-error', 'Invalid key format. TornStats keys start with "TS_"');
             return;
         }
 
-        status.innerHTML = '<span class="status-loading">Validating...</span>';
+        setStatusMessage(status, 'status-loading', 'Validating...');
 
         // Store original key to restore if validation fails
         const originalKey = window.tornStatsAPI?.apiKey;
@@ -6604,19 +7069,19 @@
             // Try to fetch loot data
             const data = await window.tornStatsAPI.fetchLootData();
 
-            console.log('TornStats API response:', data);
-            console.log('Response keys:', Object.keys(data || {}));
+            debugLog('TornStats API response:', data);
+            debugLog('Response keys:', Object.keys(data || {}));
 
             // Check if we got valid data - TornStats returns an object with NPC data
             if (data && typeof data === 'object' && !data.error) {
                 // Parse the data to verify it's valid
                 const parsedNpcs = window.tornStatsAPI.parseLootData(data);
 
-                console.log('Parsed NPCs:', parsedNpcs);
-                console.log('Parsed NPCs count:', parsedNpcs ? parsedNpcs.length : 0);
+                debugLog('Parsed NPCs:', parsedNpcs);
+                debugLog('Parsed NPCs count:', parsedNpcs ? parsedNpcs.length : 0);
 
                 if (parsedNpcs && Array.isArray(parsedNpcs) && parsedNpcs.length > 0) {
-                    status.innerHTML = `<span class="status-success">Valid TornStats API key (${parsedNpcs.length} NPCs found)</span>`;
+                    setStatusMessage(status, 'status-success', `Valid TornStats API key (${parsedNpcs.length} NPCs found)`);
                     await window.appState.updateSettings({ tornStatsApiKey: key });
                     showToast('TornStats API key saved successfully', 'success');
                 } else {
@@ -6658,7 +7123,7 @@
                 errorMessage = errorText;
             }
 
-            status.innerHTML = `<span class="status-error">${errorMessage}</span>`;
+            setStatusMessage(status, 'status-error', errorMessage);
             console.error('TornStats validation error:', error);
         }
     }
@@ -6674,12 +7139,48 @@
         }
     }
 
-    function handleAttackById(userId, source = 'targets') {
-        if (window.appState.currentView !== 'targets') {
+    function handleAttackById(userId, source = 'targets', options = {}) {
+        const normalizedUserId = normalizeTargetUserId(userId);
+        if (!normalizedUserId) {
+            showToast('Invalid target ID', 'error');
+            return;
+        }
+
+        const target = window.appState.getTarget(normalizedUserId);
+        const shouldSelectTarget = options.selectTarget !== false && target;
+
+        if (shouldSelectTarget && window.appState.currentView !== 'targets') {
             switchView('targets');
         }
-        window.appState.selectTarget(userId);
-        const target = window.appState.getTarget(userId);
+        if (shouldSelectTarget) {
+            window.appState.selectTarget(normalizedUserId);
+        }
+
+        if (target && options.warnNoAttackGroup !== false) {
+            const group = window.appState.getGroup(target.groupId);
+            if (group && group.noAttack) {
+                showPremiumAlert({
+                    title: 'Attack Prevention Warning',
+                    message: `This target is in "${group.name}" which is flagged as "Do Not Attack". Are you sure you want to proceed?`,
+                    icon: '?',
+                    iconType: 'warning',
+                    buttons: [
+                        {
+                            text: 'Continue Attack',
+                            type: 'danger',
+                            action: () => {
+                                handleAttackById(normalizedUserId, source, {
+                                    ...options,
+                                    warnNoAttackGroup: false
+                                });
+                            }
+                        },
+                        { text: 'Cancel', type: 'secondary', action: null }
+                    ]
+                });
+                return;
+            }
+        }
 
         // Check if target is attackable
         if (target && !target.isAttackable()) {
@@ -6691,15 +7192,18 @@
             if (window.appState.settings.playAttackSound) {
                 playSound('attack');
             }
-            window.electronAPI.openAttack(userId);
-            window.appState.recordAttack(userId, { source });
+            if (!openAttackWindow(normalizedUserId)) {
+                showToast('Could not open attack page', 'error');
+                return;
+            }
+            window.appState.recordAttack(normalizedUserId, { source });
         };
 
         const confirmAttack = () => {
             if (window.appState.settings.confirmBeforeAttack) {
                 showConfirm(
                     'Confirm Attack',
-                    `Attack ${target?.getDisplayName() || `User ${userId}`}?`,
+                    `Attack ${target?.getDisplayName() || `User ${normalizedUserId}`}?`,
                     performAttack
                 );
             } else {
@@ -6833,6 +7337,60 @@
         }
         window.appState.selectAll(targets.map(t => t.userId));
         updateSelectionToolbar(targets.map(t => t.userId));
+    }
+
+    async function refreshSelectedTargets() {
+        const ids = getSelectedTargetIds();
+        if (!ids.length) {
+            showToast('Select targets first', 'info');
+            return;
+        }
+        await window.appState.refreshTargets(ids);
+        showToast(`Refreshing ${ids.length} selected target${ids.length === 1 ? '' : 's'}`, 'info');
+    }
+
+    async function toggleWatchForTargets(targets) {
+        const selectedTargets = Array.isArray(targets) ? targets.filter(Boolean) : getTargetsForIds(getSelectedTargetIds());
+        if (!selectedTargets.length) {
+            showToast('Select targets first', 'info');
+            return;
+        }
+
+        const shouldWatch = selectedTargets.some(target => !target.monitorOk);
+        const result = await window.appState.setMonitorForTargets(selectedTargets.map(t => t.userId), shouldWatch);
+        if (result?.success) {
+            selectedTargets.forEach(target => {
+                const updated = window.appState.getTarget(target.userId);
+                syncReminderWatcher(updated);
+            });
+            showToast(
+                shouldWatch
+                    ? `Watching ${result.count} target${result.count === 1 ? '' : 's'}`
+                    : `Stopped watching ${result.count} target${result.count === 1 ? '' : 's'}`,
+                shouldWatch ? 'success' : 'info'
+            );
+        } else {
+            showToast(result?.error || 'Unable to update watches', 'error');
+        }
+    }
+
+    async function openBulkImportFromClipboard() {
+        try {
+            const text = await navigator.clipboard?.readText?.();
+            if (!text) {
+                showToast('Clipboard is empty', 'info');
+                return;
+            }
+            openModal('modal-bulk-add');
+            const input = document.getElementById('input-bulk-ids');
+            if (input) {
+                input.value = text;
+                handleBulkPreview();
+            }
+        } catch (error) {
+            console.error('Clipboard read failed', error);
+            showToast('Could not read clipboard', 'error');
+        }
     }
 
     function handleToggleFavorite() {
@@ -7003,6 +7561,49 @@
         }
     }
 
+    function scheduleBulkPreview() {
+        const input = document.getElementById('input-bulk-ids');
+        const preview = document.getElementById('bulk-preview');
+        const confirmBtn = document.getElementById('btn-confirm-bulk');
+        if (bulkPreviewTimer) {
+            clearTimeout(bulkPreviewTimer);
+            bulkPreviewTimer = null;
+        }
+
+        if (!input?.value?.trim()) {
+            bulkPreviewIds = [];
+            if (preview) preview.style.display = 'none';
+            if (confirmBtn) confirmBtn.disabled = true;
+            return;
+        }
+
+        if (preview) preview.style.display = 'none';
+        if (confirmBtn) confirmBtn.disabled = true;
+        bulkPreviewTimer = setTimeout(() => {
+            bulkPreviewTimer = null;
+            handleBulkPreview();
+        }, 350);
+    }
+
+    function analyzeBulkInput(inputValue, ids) {
+        const parts = String(inputValue || '').split(/[\n\r,;\s]+/).filter(Boolean);
+        const seen = new Set();
+        let duplicateCount = 0;
+
+        parts.forEach(part => {
+            const id = InputParser.extractUserId(part.trim());
+            if (!id) return;
+            if (seen.has(id)) {
+                duplicateCount++;
+            } else {
+                seen.add(id);
+            }
+        });
+
+        const existingCount = ids.filter(id => window.appState.getTarget(id)).length;
+        return { duplicateCount, existingCount };
+    }
+
     function handleBulkPreview() {
         const input = document.getElementById('input-bulk-ids');
         const preview = document.getElementById('bulk-preview');
@@ -7012,17 +7613,24 @@
         const confirmBtn = document.getElementById('btn-confirm-bulk');
 
         const { ids, invalid } = InputParser.parseUserIds(input.value);
+        const { duplicateCount, existingCount } = analyzeBulkInput(input.value, ids);
         bulkPreviewIds = ids;
 
-        validCount.textContent = `${ids.length} valid IDs found`;
+        const summary = [`${ids.length} valid ID${ids.length === 1 ? '' : 's'} found`];
+        if (existingCount > 0) summary.push(`${existingCount} already tracked`);
+        if (duplicateCount > 0) summary.push(`${duplicateCount} duplicate${duplicateCount === 1 ? '' : 's'} removed`);
+        validCount.textContent = summary.join(' | ');
         invalidCount.textContent = `${invalid.length} invalid`;
         invalidCount.style.display = invalid.length > 0 ? 'inline' : 'none';
+
+        const importableCount = ids.length - existingCount;
 
         if (ids.length > 0) {
             previewList.innerHTML = ids.slice(0, 20).map(id => 
                 `<span class="preview-id">${id}</span>`
-            ).join('') + (ids.length > 20 ? `<span class="preview-more">+${ids.length - 20} more</span>` : '');
-            confirmBtn.disabled = false;
+            ).join('') + (ids.length > 20 ? `<span class="preview-more">+${ids.length - 20} more</span>` : '')
+                + (importableCount <= 0 ? '<span class="preview-error">All valid IDs are already tracked</span>' : '');
+            confirmBtn.disabled = importableCount <= 0;
         } else {
             previewList.innerHTML = '<span class="preview-error">No valid IDs found</span>';
             confirmBtn.disabled = true;
@@ -7033,6 +7641,10 @@
 
     async function handleBulkAdd() {
         if (bulkPreviewIds.length === 0) return;
+        if (bulkPreviewTimer) {
+            clearTimeout(bulkPreviewTimer);
+            bulkPreviewTimer = null;
+        }
 
         const groupId = document.getElementById('input-bulk-group').value;
         
@@ -7269,13 +7881,14 @@
         // Build submenu HTML with all groups
         groupSubmenu.innerHTML = groups.map(group => {
             const isCurrentGroup = group.id === currentGroupId;
+            const safeColor = sanitizeHexColor(group.color);
             const checkmark = isCurrentGroup
                 ? '<svg class="checkmark" viewBox="0 0 24 24"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>'
                 : '';
 
             return `
                 <div class="context-submenu-item" data-group-id="${group.id}">
-                    <span class="group-color" style="background: ${group.color};"></span>
+                    <span class="group-color" style="background: ${safeColor};"></span>
                     <span>${escapeHtml(group.name)}</span>
                     ${checkmark}
                 </div>
@@ -7322,6 +7935,15 @@
                 break;
             case 'profile':
                 window.electronAPI.openProfile(userId);
+                break;
+            case 'copy-id':
+                await copyTargetsToClipboard(getCopyTargets(userId), 'ids');
+                break;
+            case 'copy-profile':
+                await copyTargetsToClipboard(getCopyTargets(userId), 'profiles');
+                break;
+            case 'copy-attack':
+                await copyTargetsToClipboard(getCopyTargets(userId), 'attacks');
                 break;
             case 'favorite': {
                 const { ids, targets } = getContextTargets(userId);
@@ -7518,9 +8140,9 @@
 
         switch (action) {
             case 'flag-no-attack':
-                console.log('Flag-no-attack clicked for group:', contextGroupId, group);
+                debugLog('Flag-no-attack clicked for group:', contextGroupId, group);
                 const currentFlag = await window.appState.toggleGroupNoAttack(contextGroupId);
-                console.log('Toggle result:', currentFlag);
+                debugLog('Toggle result:', currentFlag);
 
                 if (currentFlag) {
                     showPremiumAlert({
@@ -7726,6 +8348,18 @@
         const ctrlOrMeta = e.ctrlKey || e.metaKey;
         const key = (e.key || '').toLowerCase();
 
+        if (ctrlOrMeta && key === 'f' && !e.shiftKey && !document.querySelector('.modal-overlay.visible')) {
+            e.preventDefault();
+            focusTargetSearch();
+            return;
+        }
+
+        if (key === 'f1') {
+            e.preventDefault();
+            showOnboarding(true);
+            return;
+        }
+
         if (DOM.onboardingOverlay?.classList.contains('visible')) {
             if (key === 'escape') {
                 hideOnboarding();
@@ -7763,6 +8397,14 @@
                 case 'b':
                     e.preventDefault();
                     openModal('modal-bulk-add');
+                    break;
+                case 'c':
+                    e.preventDefault();
+                    copyTargetsToClipboard(getTargetsForIds(getSelectedTargetIds()), 'ids');
+                    break;
+                case 'f':
+                    e.preventDefault();
+                    clearTargetFilters();
                     break;
                 case 'o':
                     e.preventDefault();
@@ -7833,6 +8475,12 @@
             return;
         }
 
+        if (key === '/' && window.appState.currentView === 'targets') {
+            e.preventDefault();
+            focusTargetSearch(false);
+            return;
+        }
+
         // Target-specific shortcuts
         const selected = window.appState.getSelectedTarget();
         const selectedIds = window.appState.getSelectedIds ? window.appState.getSelectedIds() : [];
@@ -7859,36 +8507,70 @@
                 e.preventDefault();
                 navigateTargetList(e.key === 'ArrowUp' ? -1 : 1);
                 break;
+            case 'PageUp':
+            case 'PageDown':
+                e.preventDefault();
+                navigateTargetList(e.key === 'PageUp' ? -1 : 1, { page: true, clamp: true });
+                break;
+            case 'Home':
+                if (window.appState.currentView === 'targets') {
+                    e.preventDefault();
+                    selectTargetAtIndex(0);
+                }
+                break;
+            case 'End':
+                if (window.appState.currentView === 'targets') {
+                    e.preventDefault();
+                    selectTargetAtIndex((window.appState.getFilteredTargets?.() || []).length - 1);
+                }
+                break;
             case 'f':
                 if (selected) {
                     window.appState.toggleFavorite(selected.userId);
                 }
                 break;
+            case 'w':
+                if (selectedIds.length) {
+                    toggleWatchForTargets(getTargetsForIds(selectedIds));
+                }
+                break;
         }
     }
 
-    function navigateTargetList(direction) {
+    function selectTargetAtIndex(index) {
+        const targets = window.appState.getFilteredTargets();
+        if (targets.length === 0) return;
+        const safeIndex = Math.max(0, Math.min(targets.length - 1, index));
+        const nextId = targets[safeIndex].userId;
+        window.appState.selectTarget(nextId, { anchorId: nextId });
+        const item = DOM.targetList.querySelector(`[data-user-id="${nextId}"]`);
+        item?.scrollIntoView({ block: 'nearest' });
+    }
+
+    function navigateTargetList(direction, options = {}) {
         const targets = window.appState.getFilteredTargets();
         if (targets.length === 0) return;
 
         const currentId = window.appState.selectedTargetId;
         const currentIndex = targets.findIndex(t => t.userId === currentId);
+        const itemHeight = DOM.targetList?.querySelector('.target-item')?.getBoundingClientRect?.().height || 48;
+        const pageStep = Math.max(1, Math.floor((DOM.targetList?.clientHeight || itemHeight) / itemHeight) - 1);
+        const step = options.page ? pageStep : 1;
         
         let newIndex;
         if (currentIndex === -1) {
             newIndex = direction === 1 ? 0 : targets.length - 1;
         } else {
-            newIndex = currentIndex + direction;
-            if (newIndex < 0) newIndex = targets.length - 1;
-            if (newIndex >= targets.length) newIndex = 0;
+            newIndex = currentIndex + (direction * step);
+            if (options.clamp) {
+                newIndex = Math.max(0, Math.min(targets.length - 1, newIndex));
+            } else {
+                if (newIndex < 0) newIndex = targets.length - 1;
+                if (newIndex >= targets.length) newIndex = 0;
+            }
         }
 
-        const nextId = targets[newIndex].userId;
-        window.appState.selectTarget(nextId, { anchorId: nextId });
-
-        // Scroll into view
-        const item = DOM.targetList.querySelector(`[data-user-id="${nextId}"]`);
-        item?.scrollIntoView({ block: 'nearest' });
+        selectTargetAtIndex(newIndex);
     }
 
     // ========================================================================
@@ -8155,7 +8837,7 @@
         });
 
         // Log update for debugging
-        console.log('[WiFi Icon] Updated', {
+        debugLog('[WiFi Icon] Updated', {
             internet: internetConnected,
             tornAPI: tornApiConnected,
             tornStats: tornStatsConnected
@@ -8430,19 +9112,18 @@
     function formatStatusReason(rawReason) {
         if (!rawReason) return { html: '', plain: '' };
 
-        // Use a detached DOM to safely parse any anchor tags
-        const parserContainer = document.createElement('div');
-        parserContainer.innerHTML = rawReason;
-
-        const anchor = parserContainer.querySelector('a');
+        // Parse in an inert document so hostile HTML never becomes live page DOM.
+        const parsed = new DOMParser().parseFromString(String(rawReason), 'text/html');
+        const parserBody = parsed.body || parsed;
+        const anchor = parserBody.querySelector('a');
         const anchorHref = anchor?.getAttribute('href') || '';
         const anchorText = anchor?.textContent?.trim() || '';
-        let prefixText = parserContainer.textContent?.trim() || '';
+        let prefixText = parserBody.textContent?.trim() || '';
 
         // If we have an anchor, remove it from the prefix so we don't double-print
-        if (anchor && anchor.parentElement) {
-            anchor.parentElement.removeChild(anchor);
-            prefixText = (parserContainer.textContent || '').trim();
+        if (anchor) {
+            anchor.remove();
+            prefixText = (parserBody.textContent || '').trim();
         }
 
         // Clean and validate Torn profile URL
@@ -8592,11 +9273,25 @@
     // ========================================================================
 
     function showToast(message, type = 'info') {
+        if (!DOM.toastContainer) return;
+
+        const now = Date.now();
+        const signature = `${type}:${message}`;
+        if (lastToastSignature.key === signature && now - lastToastSignature.time < TOAST_DEDUPE_MS) {
+            return;
+        }
+        lastToastSignature = { key: signature, time: now };
+
+        const existingToasts = Array.from(DOM.toastContainer.querySelectorAll('.toast'));
+        while (existingToasts.length >= MAX_VISIBLE_TOASTS) {
+            existingToasts.shift()?.remove();
+        }
+
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.innerHTML = `
             <span class="toast-message">${escapeHtml(message)}</span>
-            <button class="toast-close">&times;</button>
+            <button class="toast-close" aria-label="Dismiss">&times;</button>
         `;
 
         toast.querySelector('.toast-close').addEventListener('click', () => {
@@ -8868,8 +9563,7 @@
             normalizedOptions = {
                 title: options,
                 message: legacyMessage,
-                buttons: legacyButtons,
-                allowHtml: true
+                buttons: legacyButtons
             };
         } else if (!options || typeof options !== 'object') {
             normalizedOptions = {};
@@ -8878,13 +9572,13 @@
         const {
             title = '',
             message = '',
+            messageContent = null,
             icon = '⚠️',
             iconType = 'warning',
             buttons = [
                 { text: 'OK', type: 'primary', action: null },
                 { text: 'Close', type: 'secondary', action: null }
             ],
-            allowHtml = false,
             dialogClass = ''
         } = normalizedOptions;
 
@@ -8910,40 +9604,38 @@
 
         // Set title and message
         titleElement.textContent = title || 'Notice';
-        if (allowHtml) {
-            messageElement.innerHTML = message || '';
-        } else {
-            messageElement.textContent = message || '';
-        }
+        setElementContent(messageElement, messageContent || message || '');
 
         // Render buttons
-        actionsElement.innerHTML = buttons.map(btn =>
-            `<button class="premium-alert-btn ${btn.type || 'secondary'}" data-action="${btn.text.toLowerCase()}">${btn.text}</button>`
-        ).join('');
-
-        // Add button listeners
-        actionsElement.querySelectorAll('.premium-alert-btn').forEach((btn, index) => {
-            btn.addEventListener('click', () => {
+        actionsElement.replaceChildren();
+        buttons.forEach((btn, index) => {
+            const button = document.createElement('button');
+            button.className = `premium-alert-btn ${btn.type || 'secondary'}`;
+            button.dataset.action = String(btn.text || index).toLowerCase();
+            button.textContent = btn.text || 'OK';
+            button.addEventListener('click', () => {
                 if (buttons[index].action) {
                     buttons[index].action();
                 }
                 hidePremiumAlert();
             });
+            actionsElement.appendChild(button);
         });
 
         // Show overlay
         overlay.classList.add('visible');
 
         // Close on overlay click
-        overlay.addEventListener('click', (e) => {
+        overlay.onclick = (e) => {
             if (e.target === overlay) {
                 hidePremiumAlert();
             }
-        });
+        };
     }
 
     function hidePremiumAlert() {
         const overlay = document.getElementById('premium-alert-overlay');
+        overlay.onclick = null;
         overlay.classList.remove('visible');
     }
 
@@ -8969,11 +9661,80 @@
         return div.innerHTML;
     }
 
+    function registerCleanup(cleanup) {
+        if (typeof cleanup !== 'function') return cleanup;
+        rendererCleanupCallbacks.add(cleanup);
+        return cleanup;
+    }
+
+    function cleanupRendererSubscriptions() {
+        const callbacks = Array.from(rendererCleanupCallbacks);
+        rendererCleanupCallbacks.clear();
+        callbacks.forEach((cleanup) => {
+            try {
+                cleanup();
+            } catch (error) {
+                console.warn('[Cleanup] Failed to dispose renderer subscription:', error);
+            }
+        });
+    }
+
+    function addWindowCleanupListener(type, handler, options) {
+        window.addEventListener(type, handler, options);
+        return registerCleanup(() => window.removeEventListener(type, handler, options));
+    }
+
+    function setElementContent(element, content) {
+        if (!element) return;
+        if (content instanceof window.Node) {
+            element.replaceChildren(content);
+            return;
+        }
+        element.textContent = content == null ? '' : String(content);
+    }
+
     function toFileUrl(filePath) {
         if (!filePath) return '';
         if (filePath.startsWith('file://')) return filePath;
         const normalized = filePath.replace(/\\/g, '/');
         return encodeURI(`file:///${normalized}`);
+    }
+
+    function sanitizeHexColor(value, fallback = '#007acc') {
+        const color = typeof value === 'string' ? value.trim() : '';
+        return /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)
+            ? color
+            : fallback;
+    }
+
+    function getSafeImageSource(value) {
+        if (typeof value !== 'string') return '';
+        const source = value.trim();
+        if (!source) return '';
+        if (source.startsWith('file://')) return source;
+        if (/^[a-z]:[\\/]/i.test(source) || source.startsWith('\\\\')) {
+            return toFileUrl(source);
+        }
+
+        try {
+            const parsed = new URL(source, window.location.href);
+            const protocol = parsed.protocol.toLowerCase();
+            if (protocol === 'http:' || protocol === 'https:' || protocol === 'file:') {
+                return parsed.href;
+            }
+        } catch (_) {
+            return '';
+        }
+
+        return '';
+    }
+
+    function updateMaximizeButtonState(isMaximized) {
+        if (!DOM.btnMaximize) return;
+        const title = isMaximized ? 'Restore' : 'Maximize';
+        DOM.btnMaximize.title = title;
+        DOM.btnMaximize.setAttribute('aria-label', title);
+        DOM.btnMaximize.classList.toggle('maximized', !!isMaximized);
     }
 
     function getInitials(name) {
@@ -9092,7 +9853,7 @@
     };
 
     function initializeBackupView() {
-        console.log('[Backup] Initializing backup view');
+        debugLog('[Backup] Initializing backup view');
 
         // Initialize UI state
         updateBackupHeader();
@@ -9332,8 +10093,8 @@
 
     async function loadDefaultPaths() {
         try {
-            if (window.electronAPI && window.electronAPI.invoke) {
-                const paths = await window.electronAPI.invoke('backup-get-paths');
+            if (window.electronAPI?.backupGetPaths) {
+                const paths = await window.electronAPI.backupGetPaths();
                 if (paths) {
                     // Map the returned paths to our state
                     if (paths.default) {
@@ -9409,8 +10170,8 @@
 
     async function handleBrowseClick() {
         try {
-            if (window.electronAPI && window.electronAPI.invoke) {
-                const result = await window.electronAPI.invoke('backup-choose-directory');
+            if (window.electronAPI?.backupChooseDirectory) {
+                const result = await window.electronAPI.backupChooseDirectory();
                 if (result && result.path) {
                     backupState.destinationPreset = 'custom';
                     backupState.customPath = result.path;
@@ -9426,8 +10187,8 @@
 
     async function loadRecentBackups() {
         try {
-            if (window.electronAPI && window.electronAPI.invoke) {
-                const backups = await window.electronAPI.invoke('list-backups');
+            if (window.electronAPI?.listBackups) {
+                const backups = await window.electronAPI.listBackups();
                 renderRecentBackups(backups || []);
             }
         } catch (error) {
@@ -9455,7 +10216,7 @@
                 </div>
                 <div class="backup-recent-info">
                     <div class="backup-recent-name">${escapeHtml(backup.name)}</div>
-                    <div class="backup-recent-date">${formatBackupDate(backup.date)}</div>
+                    <div class="backup-recent-date">${formatBackupDate(backup.created)}</div>
                 </div>
                 <button class="backup-recent-action" title="Open in folder">
                     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -9483,8 +10244,8 @@
                 actionBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     const path = item.dataset.path;
-                    if (path && window.electronAPI && window.electronAPI.invoke) {
-                        await window.electronAPI.invoke('backup-reveal-in-folder', path);
+                    if (path && window.electronAPI?.backupRevealInFolder) {
+                        await window.electronAPI.backupRevealInFolder(path);
                     }
                 });
             }
@@ -9529,7 +10290,7 @@
             const backupData = {
                 version: '1.0',
                 exportDate: new Date().toISOString(),
-                appVersion: await window.electronAPI.invoke('get-app-version'),
+                appVersion: await window.electronAPI.getAppVersion(),
                 data: {}
             };
 
@@ -9558,7 +10319,7 @@
             const filename = (backupState.filename || 'TTT_Backup') + '.json';
 
             // Export to path
-            const result = await window.electronAPI.invoke('backup-export-to-path', {
+            const result = await window.electronAPI.backupExportToPath({
                 directory: basePath,
                 filename: filename,
                 data: backupData,
@@ -9571,7 +10332,7 @@
 
                 // Open folder if toggle is on
                 if (backupState.openAfterExport && result.path) {
-                    await window.electronAPI.invoke('backup-reveal-in-folder', result.path);
+                    await window.electronAPI.backupRevealInFolder(result.path);
                 }
 
                 // Reload recent backups
@@ -9638,8 +10399,8 @@
 
     async function loadBackupFile(filePath) {
         try {
-            if (window.electronAPI && window.electronAPI.invoke) {
-                const result = await window.electronAPI.invoke('backup-import', { path: filePath, preview: true });
+            if (window.electronAPI?.backupImport) {
+                const result = await window.electronAPI.backupImport({ path: filePath, preview: true });
                 if (result && result.success && result.data) {
                     backupState.importFile = { name: filePath.split(/[\\/]/).pop(), path: filePath };
                     backupState.importData = result.data;
@@ -10038,7 +10799,8 @@
     // ========================================================================
 
     async function init() {
-        console.log('Initializing Torn Target Tracker...');
+        debugLog('Initializing Torn Target Tracker...');
+        cleanupRendererSubscriptions();
 
         // Cache DOM elements
         cacheDOMElements();
@@ -10060,36 +10822,36 @@
         // Initialize application state
         await window.appState.initialize();
 
-        console.log('Application initialized');
+        debugLog('Application initialized');
 
         // Update WiFi icon on initialization
         updateWifiIcon();
         refreshConnectionIndicators();
 
         // Listen for internet connectivity changes
-        window.addEventListener('online', updateWifiIcon);
-        window.addEventListener('offline', updateWifiIcon);
+        addWindowCleanupListener('online', updateWifiIcon);
+        addWindowCleanupListener('offline', updateWifiIcon);
 
         // Listen for connection state changes from connection dialog
-        window.addEventListener('storage', (e) => {
+        addWindowCleanupListener('storage', (e) => {
             if (e.key && e.key.startsWith('connection_')) {
-                console.log('[WiFi Icon] Connection state changed:', e.key, e.newValue);
+                debugLog('[WiFi Icon] Connection state changed:', e.key, e.newValue);
                 updateWifiIcon();
             }
         });
 
         // Listen for connection check completion
         if (window.electronAPI && window.electronAPI.onConnectionCheckCompleted) {
-            window.electronAPI.onConnectionCheckCompleted(() => {
-                console.log('[WiFi Icon] Connection check completed, updating icon');
+            registerCleanup(window.electronAPI.onConnectionCheckCompleted(() => {
+                debugLog('[WiFi Icon] Connection check completed, updating icon');
                 updateWifiIcon();
-            });
+            }));
         }
 
         // Listen for backup import completion
         if (window.electronAPI && window.electronAPI.onBackupImported) {
-            window.electronAPI.onBackupImported(async () => {
-                console.log('[Backup] Import completed, refreshing data');
+            registerCleanup(window.electronAPI.onBackupImported(async () => {
+                debugLog('[Backup] Import completed, refreshing data');
                 showNotification('Backup imported successfully! Refreshing data...', 'success');
                 // Reload all data from store
                 try {
@@ -10109,7 +10871,7 @@
                 } catch (error) {
                     console.error('[Backup] Failed to refresh after import:', error);
                 }
-            });
+            }));
         }
 
         // Update WiFi icon periodically (every 5 seconds)
@@ -10122,4 +10884,5 @@
     } else {
         init();
     }
+    window.addEventListener('beforeunload', cleanupRendererSubscriptions, { once: true });
 })();
